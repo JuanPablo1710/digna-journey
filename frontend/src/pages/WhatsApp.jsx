@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import SimulateNewDevice from "../SimulateNewDevice";
 import ResumeByEmail from "../ResumeByEmail";
 
 import { getClinics, getStudies, resetWhatsAppConversation, sendWhatsAppInteraction } from "../api";
@@ -105,6 +106,7 @@ export default function WhatsApp() {
 
   return (
     <main className="min-h-screen bg-emerald-50/60 px-4 py-6 sm:py-10">
+      <SimulateNewDevice disabled={loading} />
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_390px] lg:items-start">
         <section className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm sm:p-7">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Simulador de canal</p>

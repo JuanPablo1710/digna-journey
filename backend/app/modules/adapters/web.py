@@ -112,7 +112,9 @@ def _origin_identity(session: Session, identifier: str, case: Case) -> ChannelId
 
 
 def _identity_is_fresh(identity: ChannelIdentity) -> bool:
-    return _utc_now() - _aware(identity.last_seen_at) <= SESSION_TTL
+    return not (identity.session_state or {}).get("invalidated") and (
+        _utc_now() - _aware(identity.last_seen_at) <= SESSION_TTL
+    )
 
 
 def _load_case(session: Session, case_id: str) -> Case:

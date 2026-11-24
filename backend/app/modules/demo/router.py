@@ -1,17 +1,43 @@
 from datetime import timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Cookie, Query, Response
 from sqlalchemy import select
 
 from ...config import settings
 from ...db import Base, SessionLocal, engine
 from ...errors import APIError
-from ...models import MailboxMessage
-from ..identity.service import normalize_email
+from ...models import ChannelIdentity, MailboxMessage
+from ..identity.service import new_id, normalize_email
 from .seed import seed_demo
 
 
 router = APIRouter(prefix="/demo", tags=["demo"])
+device_router = APIRouter(prefix="/demo", tags=["demo"])
+
+
+@device_router.get("/new-device", status_code=204)
+def check_new_device():
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@device_router.post("/new-device", status_code=204)
+def simulate_new_device(web_session: str | None = Cookie(default=None)):
+    if web_session:
+        with SessionLocal.begin() as session:
+            identity = session.scalar(select(ChannelIdentity).where(
+                ChannelIdentity.channel == "web",
+                ChannelIdentity.identifier == web_session,
+            ))
+            if identity is None:
+                identity = ChannelIdentity(
+                    id=new_id("CI"), channel="web", identifier=web_session,
+                    identifier_type="session",
+                )
+                session.add(identity)
+            identity.session_state = {"invalidated": True}
+    response = Response(status_code=204, headers={"Cache-Control": "no-store"})
+    response.delete_cookie("web_session", httponly=True, samesite="lax")
+    return response
 
 
 def _require_demo_mode() -> None:

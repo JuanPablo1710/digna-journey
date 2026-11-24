@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import SimulateNewDevice from "../SimulateNewDevice";
 import ResumeByEmail from "../ResumeByEmail";
 
 import {
@@ -454,6 +455,7 @@ export default function Web() {
 
   return (
     <main className="min-h-screen bg-slate-50">
+      <SimulateNewDevice disabled={loading} />
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-5">
           <div>

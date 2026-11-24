@@ -40,6 +40,11 @@ export async function getHealth() {
   return request("/health");
 }
 
+export async function canSimulateNewDevice(signal) {
+  await request("/demo/new-device", { signal });
+  return true;
+}
+
 export async function requestResume(email, phone) {
   return request("/resume/request", {
     method: "POST",
@@ -70,6 +75,13 @@ export async function selectResume(challengeId, item, key) {
   });
   if (result.session_identifier) setWebSession(result.session_identifier);
   return result;
+}
+
+export async function simulateNewDevice() {
+  await request("/demo/new-device", { method: "POST" });
+  localStorage.clear();
+  sessionStorage.clear();
+  window.location.reload();
 }
 
 export async function getStudies() {

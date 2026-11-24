@@ -191,7 +191,7 @@ def trust_level(
     if not identifier:
         return 0
     identity = _identity(session, channel, identifier)
-    if identity is None or identity.person_id is None:
+    if identity is None or identity.person_id is None or (identity.session_state or {}).get("invalidated"):
         return 0
     if case is not None and identity.person_id != case.requester_id:
         return 0

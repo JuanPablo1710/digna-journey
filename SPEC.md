@@ -471,6 +471,7 @@ Los eventos se ordenan por `seq` en orden cronológico. Esta vista simple no exp
 - `GET /stream?token=` (SSE). Mensajes `{type, case_id, channel, timestamp, summary}` con datos **enmascarados**. El asesor recibe además actualizaciones del trámite que tiene abierto.
 
 ### 8.9 Demo y salud
+- Con `DEMO_MODE=true`, `GET /demo/new-device` devuelve 204 e indica que se puede mostrar «Simular otro dispositivo». `POST /demo/new-device`, sin cuerpo, invalida en el servidor el identificador de la cookie `web_session`, borra la cookie y devuelve 204. El cliente limpia `localStorage` y `sessionStorage` del origen y recarga la página para reiniciar su estado en memoria. Se conservan personas, trámites, eventos, mensajes del buzón y la conversación asociada al número de WhatsApp. Con `DEMO_MODE=false` ambas rutas están ausentes (404).
 - `GET /health`.
 - `POST /demo/reset` (borra y vuelve a cargar los datos semilla) y `POST /demo/seed`. Solo rol `admin` o `DEMO_MODE=true`.
 - `GET /demo/mailbox?email=` (correos simulados con OTP). `POST /demo/cases/{id}/abandon` (fuerza el estado abandonado para la demo).

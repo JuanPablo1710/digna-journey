@@ -4,11 +4,18 @@ from fastapi import APIRouter, Cookie, Response
 from ...db import SessionLocal
 from ...errors import APIError
 from ...schemas import VerificationConfirmData, VerificationRequestData
-from .service import confirm_verification, request_verification
+from .service import _identity, confirm_verification, request_verification
 
 
 router = APIRouter(prefix="/identity", tags=["identity"])
 SESSION_COOKIE = "web_session"
+
+
+def _reject_invalidated_session(session, channel, identifier):
+    if channel == "web" and identifier:
+        identity = _identity(session, channel, identifier)
+        if identity is not None and (identity.session_state or {}).get("invalidated"):
+            raise APIError(403, "session_expired", "La sesión web ya no está vigente.")
 
 
 def _raise_service_error(result: dict) -> None:
@@ -27,6 +34,7 @@ def request_identity_verification(
         raise APIError(403, "web_session_required", "Inicia una sesión web antes de verificar el correo.")
     with SessionLocal() as session:
         with session.begin():
+            _reject_invalidated_session(session, data.channel, web_session)
             result = request_verification(
                 session,
                 channel=data.channel,
@@ -46,6 +54,7 @@ def confirm_identity_verification(
 ):
     with SessionLocal() as session:
         with session.begin():
+            _reject_invalidated_session(session, data.channel, web_session)
             result = confirm_verification(
                 session,
                 channel=data.channel,
