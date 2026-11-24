@@ -1,6 +1,6 @@
 # Motor de contexto omnicanal
 
-Prototipo ficticio para Salud Digna. Incluye hasta S3: núcleo de trámites, flujo web, identidad con OTP y canal conversacional simulado de WhatsApp.
+Prototipo ficticio para Salud Digna. Incluye hasta S4: núcleo de trámites, Web, identidad con OTP, WhatsApp y consola de Call Center.
 
 ## Requisitos
 
@@ -57,6 +57,24 @@ Los endpoints públicos de catálogo y la documentación de la API están dispon
 
 ## Pruebas
 
+### Preparar una demo limpia
+
+Desde `backend`, con `DEMO_MODE=true`, ejecuta:
+
+```powershell
+python -m app.modules.demo.reset
+```
+
+El comando reconstruye la base configurada en `DATABASE_URL` y genera `docs/DEMO_DATA.md`. `POST /demo/reset` ejecuta el mismo proceso. Después del reset, vuelve a iniciar sesión y recarga los canales abiertos. La configuración de ejemplo usa dos minutos de bloqueo y quince minutos de abandono.
+
+### Prueba manual de Call Center (S4)
+
+1. Completa el flujo de Ana en Web y elige un horario en WhatsApp.
+2. En `/login`, entra como `asesor` con `Asesor#2026`. En `/callcenter`, ingresa el teléfono de Ana y pulsa **Llamada entrante**. Deja el número vacío para probar una llamada oculta y busca por correo.
+3. Selecciona la coincidencia enmascarada y verifica la fecha de nacimiento que registró Ana. Comprueba el solicitante, el paciente, el horario y la línea de tiempo. Agrega una nota interna y confirma la cita.
+4. Pulsa **Terminar llamada**. El contexto se cierra y la verificación de esa llamada queda vencida.
+5. En modo demo, prueba tres fechas incorrectas y usa **Desbloquear** para restablecer los intentos. `LOCKOUT_MINUTES` configura el bloqueo (10 minutos por defecto).
+
 Para probar la retoma por correo, inicia un agendamiento en `/whatsapp` con un número desconocido y detente después de capturar un correo ficticio. En `/web`, elige **Ya tengo un trámite**, solicita el código y léelo en `/mailbox`. Verifica el código y selecciona el borrador. El formulario Web conserva lo capturado y el borrador deja de estar disponible en el número de origen. También puedes recuperar un trámite semilla con `luis.demo@example.com`.
 
 El buzón es público en modo demo y permite saber si se envió un correo. No existe en producción. Los borradores anteriores guardados solo en `session_state` no se migran. Para una demo desde cero, recrea SQLite con el procedimiento de configuración anterior.
@@ -98,8 +116,8 @@ Marta y Pablo comparten deliberadamente el mismo teléfono para probar la desamb
 
 ## Prueba manual de WhatsApp S3
 
-1. En `/web`, crea a Ana con el teléfono `2221234567`, elige estudio y clínica, y detente antes del horario.
-2. Abre `/whatsapp`, selecciona **Otro número**, escribe `2221234567` e inicia la conversación.
+1. En `/web`, crea a Ana con el teléfono `+522220000001` y el correo `ana.demo@example.com`, elige estudio y clínica, y detente antes del horario.
+2. Abre `/whatsapp`, selecciona **Otro número**, escribe `+522220000001` e inicia la conversación.
 3. Envía la fecha de nacimiento de Ana. El OTP se crea en `/mailbox` y el chat solo muestra el correo enmascarado.
 4. Escribe el OTP, pulsa **Continuar** y elige un horario. El trámite cambia de `web` a `whatsapp` sin repetir datos.
 5. Para probar interrupción, usa otro número, elige **Agendar cita**, contesta algunos campos y recarga: el motor pedirá exactamente el siguiente dato faltante.

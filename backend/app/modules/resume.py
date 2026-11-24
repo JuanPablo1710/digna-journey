@@ -49,9 +49,12 @@ def _audit(session, challenge, event_type, **extra):
                  actor_id=challenge.id, payload={"method": "email_otp", **extra})
 
 
-def _deliver(email, code, eligible):
+def _deliver(challenge_id, email, code, eligible):
     if eligible and settings.demo_mode:
         with SessionLocal.begin() as session:
+            lock_demo_writes(session)
+            if session.get(ResumeChallenge, challenge_id) is None:
+                return
             session.add(MailboxMessage(
                 id=new_id("MAIL"), email=email, subject="Tu código para retomar (demo)",
                 body=f"Tu código para retomar es {code}.", code=code,
@@ -98,7 +101,7 @@ def request_resume(data: RequestData, background: BackgroundTasks, response: Res
             )
             session.add(challenge)
             _audit(session, challenge, "verificacion_solicitada")
-            background.add_task(_deliver, email, code, challenge.scope["eligible"])
+            background.add_task(_deliver, challenge.id, email, code, challenge.scope["eligible"])
     response.set_cookie("web_session", web_session, max_age=1800, httponly=True, samesite="lax")
     return {"challenge_id": challenge.id, "message": NEUTRAL}
 

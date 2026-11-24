@@ -9,7 +9,11 @@ from .config import settings
 from .db import SessionLocal, create_tables
 from .errors import APIError
 from .modules.adapters.web import router as web_router
+from .modules.adapters.callcenter import router as callcenter_router
 from .modules.adapters.whatsapp import router as whatsapp_router
+from .modules.agent import router as agent_router
+from .modules.agent import case_router as agent_case_router, demo_router as agent_demo_router
+from .modules.auth import router as auth_router
 from .modules.demo.router import router as demo_router
 from .modules.demo.router import device_router
 from .modules.demo.seed import seed_demo
@@ -20,30 +24,11 @@ from .modules.resume import router as resume_router
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     create_tables()
-    with SessionLocal() as session:
+    with SessionLocal.begin() as session:
         seed_demo(session)
     yield
 
 
-app = FastAPI(title="Motor de contexto omnicanal", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.frontend_origin],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.include_router(catalog_router)
-app.include_router(web_router)
-app.include_router(whatsapp_router)
-app.include_router(identity_router)
-app.include_router(resume_router)
-app.include_router(demo_router)
-if settings.demo_mode:
-    app.include_router(device_router)
-
-
-@app.exception_handler(APIError)
 async def api_error_handler(_: Request, exc: APIError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
@@ -51,7 +36,30 @@ async def api_error_handler(_: Request, exc: APIError) -> JSONResponse:
     )
 
 
-@app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def create_app(*, demo_mode: bool | None = None) -> FastAPI:
+    application = FastAPI(title="Motor de contexto omnicanal", lifespan=lifespan)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.frontend_origin],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    for router in (catalog_router, web_router, whatsapp_router, identity_router, auth_router,
+                   agent_router, agent_case_router, callcenter_router, resume_router, demo_router):
+        application.include_router(router)
+    demo_enabled = settings.demo_mode if demo_mode is None else demo_mode
+    if demo_enabled:
+        application.include_router(device_router)
+        application.include_router(agent_demo_router)
+    application.add_exception_handler(APIError, api_error_handler)
+    application.add_api_route("/health", health, methods=["GET"])
+    return application
+
+
+app = create_app()
 

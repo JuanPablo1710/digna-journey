@@ -840,6 +840,13 @@ def web_interaction(
                 if request.action != "continue_case" and existing_identity is not None:
                     if web_session != request.identifier or not _identity_is_fresh(existing_identity):
                         raise APIError(403, "session_expired", "La sesión de origen expiró.")
+                if request.action != "continue_case" and existing_identity is None and web_session == request.identifier:
+                    quote_session = session.scalar(select(Event.seq).where(
+                        Event.channel == "web", Event.actor_id == web_session,
+                        Event.type == "contacto_creado", Event.case_id.is_(None),
+                    ).limit(1))
+                    if quote_session is None:
+                        raise APIError(403, "session_expired", "La sesión de origen expiró.")
                 result = process_interaction(session, request, web_session)
         except APIError as exc:
             if exc.status_code == 403:
@@ -923,7 +930,8 @@ def get_timeline(case_id: str, web_session: str | None = Cookie(default=None, al
                         or_(
                             Event.case_id == case.id,
                             (Event.case_id.is_(None) & (Event.actor_id == web_session) & (Event.channel == "web")),
-                        )
+                        ),
+                        Event.type != "nota_agregada",
                     )
                     .order_by(Event.seq)
                 ).all()

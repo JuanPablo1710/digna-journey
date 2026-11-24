@@ -8,10 +8,12 @@ os.environ["DATABASE_URL"] = "sqlite:///./data/test.db"
 
 from app.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.modules.demo import reset  # noqa: E402
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch, tmp_path):
+    monkeypatch.setattr(reset, "REPORT_PATH", tmp_path / "DEMO_DATA.md")
     Base.metadata.drop_all(bind=engine)
     with TestClient(app) as test_client:
         yield test_client

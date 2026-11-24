@@ -1,4 +1,5 @@
 import secrets
+from math import ceil
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...errors import APIError
+from ...config import settings
 from ...models import Case, ChannelIdentity, Event, MailboxMessage, Person, User, Verification
 from ...security import create_patient_token, hash_password, mask_email, verify_hash
 from ..events import append_event
@@ -66,6 +68,45 @@ def ensure_complete_person(person: Person | None) -> None:
             "incomplete_person",
             "La persona necesita nombre y fecha de nacimiento antes de continuar.",
         )
+
+
+def dob_counter(session, person_id):
+    return session.scalar(select(Verification).where(
+        Verification.person_id == person_id, Verification.channel == "shared",
+        Verification.method == "dob_check",
+    ))
+
+
+def dob_block(counter):
+    if counter and counter.expires_at and aware(counter.expires_at) > utc_now():
+        remaining = ceil((aware(counter.expires_at) - utc_now()).total_seconds())
+        return (429, "temporarily_locked", "La verificación está bloqueada temporalmente.",
+                {"attempts_remaining": 0, "retry_after_seconds": max(1, remaining)})
+    return None
+
+
+def check_shared_dob(session, person, birth_date):
+    counter = dob_counter(session, person.id)
+    if error := dob_block(counter):
+        return error
+    if person.birth_date == birth_date:
+        if counter:
+            session.delete(counter)
+        return None
+    if counter is None:
+        counter = Verification(id=new_id("V"), person_id=person.id, channel="shared",
+                               identifier=person.id, method="dob_check", status="failed", attempts=0)
+        session.add(counter)
+    if counter.expires_at:
+        counter.attempts = 0
+        counter.expires_at = None
+    counter.attempts += 1
+    if counter.attempts >= 3:
+        counter.status = "locked"
+        counter.expires_at = utc_now() + timedelta(minutes=settings.lockout_minutes)
+        return dob_block(counter)
+    return (422, "birth_date_mismatch", "La fecha de nacimiento no coincide.",
+            {"attempts_remaining": 3 - counter.attempts})
 
 
 def _identity(session: Session, channel: str, identifier: str) -> ChannelIdentity | None:
@@ -280,6 +321,14 @@ def request_verification(
         if not matches:
             return {"_error": (404, "unknown_identifier", "No encontramos datos para ese teléfono.", {})}
         matched = [person for person in matches if person.birth_date == birth_date]
+        candidate = matches[0] if len(matches) == 1 else matched[0] if len(matched) == 1 else None
+        if candidate and (error := check_shared_dob(session, candidate, birth_date)):
+            append_event(
+                session, event_type="verificacion_fallida", channel=channel,
+                actor_id=phone, person_id=candidate.id,
+                payload={"method": "dob_check", "locked": error[0] == 429},
+            )
+            return {"_error": error}
         if len(matched) != 1:
             append_event(
                 session,
@@ -338,6 +387,8 @@ def request_verification(
         if dob_verification is None:
             raise APIError(403, "dob_check_required", "Primero valida la fecha de nacimiento.")
         person = session.get(Person, dob_verification.person_id)
+        if error := dob_block(dob_counter(session, person.id)):
+            raise APIError(*error)
     else:
         normalized_identifier = normalize_email(identifier)
         person = _person_for_email(session, normalized_identifier)

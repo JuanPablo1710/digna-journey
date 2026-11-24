@@ -1,9 +1,6 @@
-import runpy
-from dataclasses import replace
-
 from fastapi.testclient import TestClient
 
-from app import config
+from app.main import create_app
 from test_web_core import interaction, preregister
 
 
@@ -28,9 +25,8 @@ def test_new_device_revokes_old_cookie(client):
     assert resumed["case"] is None
 
 
-def test_new_device_routes_absent_outside_demo(monkeypatch):
-    monkeypatch.setattr(config, "settings", replace(config.settings, demo_mode=False))
-    app = runpy.run_module("app.main", run_name="app.device_test")["app"]
+def test_new_device_routes_absent_outside_demo():
+    app = create_app(demo_mode=False)
     client = TestClient(app)
     assert client.get("/demo/new-device").status_code == 404
     assert client.post("/demo/new-device").status_code == 404

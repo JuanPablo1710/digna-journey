@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { confirmResume, requestResume, selectResume } from "./api";
+import { formatMexicoDateTime } from "./mexicoTime";
 
 export default function ResumeByEmail({ phone, studies, clinics, onSelected, onClose }) {
   const [email, setEmail] = useState("");
@@ -50,7 +51,7 @@ export default function ResumeByEmail({ phone, studies, clinics, onSelected, onC
                   {clinics.find((clinic) => clinic.id === item.clinic_id)?.name ?? "Clínica por elegir"}
                   {" · "}{item.status.replaceAll("_", " ")}{" · "}{item.channel}
                   {" · Para: "}{item.patient_name ?? "Paciente por indicar"}
-                  {" · "}{new Date(item.updated_at).toLocaleString("es-MX")}
+                  {" · "}{formatMexicoDateTime(item.updated_at)}
                 </span>
               </button>
             </li>

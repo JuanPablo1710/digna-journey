@@ -24,6 +24,7 @@ class Settings:
         "DATABASE_URL", f"sqlite:///{(BACKEND_DIR / 'data' / 'app.db').as_posix()}"
     )
     abandon_minutes: int = int(os.getenv("ABANDON_MINUTES", "15"))
+    lockout_minutes: int = max(1, int(os.getenv("LOCKOUT_MINUTES", "10")))
     demo_mode: bool = _as_bool(os.getenv("DEMO_MODE", "true"))
     ai_enabled: bool = _as_bool(os.getenv("AI_ENABLED", "false"))
     frontend_origin: str = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")

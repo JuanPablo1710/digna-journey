@@ -1,6 +1,8 @@
+from datetime import datetime
+
 from pydantic import ValidationError
 
-from ...catalog import CLINICS, STUDIES
+from ...catalog import CLINICS, MEXICO_CITY, STUDIES
 from ...db import SessionLocal
 from ...errors import APIError
 from ..resume import ConfirmData, RequestData, SelectData, _challenge, confirm_resume, request_resume, select_resume
@@ -26,8 +28,8 @@ def _item_choice(item):
     clinic = next((entry["name"] for entry in CLINICS if entry["id"] == item["clinic_id"]), "Clínica por elegir")
     patient = item["patient_name"] or "Paciente por indicar"
     status = item["status"].replace("_", " ")
-    activity = item["updated_at"][:16].replace("T", " ")
-    return _choice(f"{study} · {clinic} · Para: {patient} · {status} · {item['channel']} · {activity} UTC",
+    activity = datetime.fromisoformat(item["updated_at"]).astimezone(MEXICO_CITY).strftime("%d/%m %H:%M")
+    return _choice(f"{study} · {clinic} · Para: {patient} · {status} · {item['channel']} · {activity} (CDMX)",
                    "resume_select", kind=item["kind"], id=item["id"], expected_version=item["version"])
 
 

@@ -98,6 +98,8 @@ def change_channel(
     *,
     channel: str,
     actor_id: str,
+    actor_role: str = "paciente",
+    call_id: str | None = None,
 ) -> list[Any]:
     if case.last_channel == channel:
         case.current_channel = channel
@@ -113,7 +115,8 @@ def change_channel(
             actor_id=actor_id,
             case_id=case.id,
             person_id=case.requester_id,
-            payload={"from": previous, "to": channel},
+            actor_role=actor_role,
+            payload={"from": previous, "to": channel, **({"call_id": call_id} if call_id else {})},
         )
     ]
 
@@ -198,12 +201,14 @@ def update_case(
     study_id: str | None = None,
     clinic_id: str | None = None,
     slot_id: str | None = None,
+    actor_role: str = "paciente",
+    call_id: str | None = None,
 ) -> tuple[list[Any], str]:
     check_version(session, case, expected_version)
     if case.status == "cancelado":
         raise APIError(422, "case_cancelled", "El trámite está cancelado y no puede modificarse.")
 
-    events = change_channel(session, case, channel=channel, actor_id=actor_id)
+    events = change_channel(session, case, channel=channel, actor_id=actor_id, actor_role=actor_role, call_id=call_id)
     if action == "select_study":
         item = next((value for value in STUDIES if value["id"] == study_id), None)
         if item is None:
@@ -259,7 +264,8 @@ def update_case(
             actor_id=actor_id,
             case_id=case.id,
             person_id=case.requester_id,
-            payload=payload,
+            actor_role=actor_role,
+            payload={**payload, **({"call_id": call_id} if call_id else {})},
             idempotency_key=idempotency_key,
         )
     )

@@ -11,6 +11,8 @@ export default defineConfig({
       "/channels": "http://localhost:8000",
       "/cases": "http://localhost:8000",
       "/identity": "http://localhost:8000",
+      "/auth": "http://localhost:8000",
+      "/agent": "http://localhost:8000",
       "/demo": "http://localhost:8000",
       "/resume": "http://localhost:8000",
     },

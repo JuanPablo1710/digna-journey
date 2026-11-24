@@ -2,6 +2,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? "";
 const WEB_SESSION_KEY = "salud-digna-demo-web-session";
 const WEB_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_WEB ?? "demo-web-key";
 const WHATSAPP_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_WHATSAPP ?? "demo-whatsapp-key";
+const CALLCENTER_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_CALLCENTER ?? "demo-callcenter-key";
 
 function getWebSession() {
   let identifier = localStorage.getItem(WEB_SESSION_KEY);
@@ -38,6 +39,95 @@ async function request(path, options = {}) {
 
 export async function getHealth() {
   return request("/health");
+}
+
+export async function staffLogin(username, password) {
+  const session = await request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  sessionStorage.setItem("salud-digna-staff", JSON.stringify(session));
+  return session;
+}
+
+export function getStaffSession() {
+  try {
+    return JSON.parse(sessionStorage.getItem("salud-digna-staff"));
+  } catch {
+    return null;
+  }
+}
+
+export function staffLogout() {
+  sessionStorage.removeItem("salud-digna-staff");
+}
+
+export function getSavedCall() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem("salud-digna-call"));
+    return saved?.token === getStaffSession()?.access_token ? saved.call : null;
+  } catch {
+    return null;
+  }
+}
+
+export function lookupForAgent(field, value) {
+  const query = new URLSearchParams({ [field]: value });
+  return staffRequest(`/agent/lookup?${query}`);
+}
+
+function staffRequest(path, method = "GET", data, headers = {}) {
+  return request(path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${getStaffSession()?.access_token ?? ""}`,
+      ...(data === undefined ? {} : { "Content-Type": "application/json" }),
+      ...headers,
+    },
+    ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+  });
+}
+
+export async function callCenterInteraction(kind, phone, callId) {
+  const result = await staffRequest("/channels/callcenter/interactions", "POST", {
+    kind,
+    identifier: phone || "hidden",
+    identifier_type: phone ? "phone" : "session",
+    idempotency_key: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    data: callId ? { call_id: callId } : {},
+  }, { "X-Channel-Key": CALLCENTER_CHANNEL_KEY });
+  if (kind === "call_started") {
+    const displayCall = { ...result, startedAt: Date.now(), incomingNumber: phone };
+    sessionStorage.setItem("salud-digna-call", JSON.stringify({ token: getStaffSession()?.access_token, call: displayCall }));
+    return displayCall;
+  } else {
+    sessionStorage.removeItem("salud-digna-call");
+  }
+  return result;
+}
+
+export function verifyForAgent(personId, birthDate, callId) {
+  return staffRequest("/agent/verify", "POST", {
+    person_id: personId, method: "agent_assisted", birth_date: birthDate, call_id: callId,
+  });
+}
+
+export function getAgentContext(personId) {
+  return staffRequest(`/agent/patients/${encodeURIComponent(personId)}/context`);
+}
+
+export function unlockAgentVerification(personId) {
+  return staffRequest(`/agent/patients/${encodeURIComponent(personId)}/unlock`, "POST");
+}
+
+export function patchAgentCase(item, fields) {
+  return staffRequest(`/cases/${encodeURIComponent(item.id)}`, "PATCH", { expected_version: item.version, fields });
+}
+
+export function addAgentNote(caseId, text) {
+  return staffRequest(`/agent/cases/${encodeURIComponent(caseId)}/notes`, "POST", { text });
 }
 
 export async function canSimulateNewDevice(signal) {

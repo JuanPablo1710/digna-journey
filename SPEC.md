@@ -232,6 +232,7 @@ Convenciones: JSON; errores `{ "error": "codigo", "message": "texto en español"
 
 ### 8.1 Autenticación
 - `POST /auth/login` `{username, password}` → `{access_token, role, person_id?}` (asesor y admin).
+- El JWT de personal dura ocho horas. Las rutas protegidas reciben `Authorization: Bearer <access_token>` y comprueban el rol en el servidor.
 - Pacientes: `POST /identity/verify/request` y `/confirm` con `channel="app"` o `"web"`; al confirmar devuelven JWT con rol `paciente` y `person_id`.
 
 ### 8.2 Catálogo (público, ficticio)
@@ -460,10 +461,19 @@ Los eventos se ordenan por `seq` en orden cronológico. Esta vista simple no exp
 
 ### 8.6 Asesor (rol `asesor`)
 - `GET /agent/lookup?phone=|email=` → coincidencias (solo nombre enmascarado y nivel 1).
+- La búsqueda devuelve `{matches: [{person_id, masked_name, trust_level: 1}]}`. El identificador de la coincidencia permite solicitar la verificación. La respuesta omite el contexto del trámite.
 - `POST /agent/verify` `{person_id, method:"agent_assisted", birth_date}` → verificación asistida.
 - `GET /agent/patients/{person_id}/context` → contexto completo + línea de tiempo. **Requiere verificación vigente**; si no → 403 + evento `acceso_denegado`. Si procede → evento `contexto_consultado`.
 - `POST /agent/cases/{id}/notes` `{text}` → `nota_agregada`.
 - Confirmar o avanzar el trámite: `PATCH /cases/{id}`.
+
+El adaptador `POST /channels/callcenter/interactions` requiere Bearer de asesor y `X-Channel-Key`. `call_started` recibe número como `identifier` de tipo `phone`, o `identifier="hidden"` y tipo `session` para una llamada oculta. Devuelve `call_id` opaco y `trust_level` 0 o 1 dentro de la respuesta canónica. El asesor tiene una llamada activa a la vez. `call_ended` recibe `data.call_id` y comprueba el mismo asesor. Las llamadas nunca guardan el número completo en eventos.
+
+- `/agent/verify` recibe `birth_date` en formato `YYYY-MM-DD` y admite `call_id`. Es obligatorio si la llamada activa es oculta o el número no se reconoció. Si el número se reconoció, puede omitirse y se usa la llamada activa del asesor. Devuelve `{trust_level: 2, valid_until, call_id}`. La llamada se vincula una sola vez al solicitante verificado. Registra `identidad_vinculada` y, cuando hay un cambio de canal, `canal_cambiado` con el identificador de llamada. El acceso vence al terminar la llamada o al pasar 30 minutos. Sin llamada, la autorización dura 30 minutos y pertenece al asesor que verificó.
+- La cuenta de fallos de fecha de nacimiento es común a WhatsApp y Call Center por solicitante identificado. Se guarda en `verifications` con `channel="shared"` y `method="dob_check"`. Un acierto reinicia los intentos. El tercer fallo bloquea por `LOCKOUT_MINUTES` (10 por defecto). Los fallos devuelven `attempts_remaining` y, durante el bloqueo, `retry_after_seconds`. Si un teléfono compartido sigue siendo ambiguo, el fallo no se atribuye a una persona arbitraria.
+- `GET /agent/patients/{person_id}/context` devuelve `{person_id, cases, timeline}`. Cada trámite incluye solicitante, paciente, pasos pendientes y notas internas. La línea de tiempo incluye tipo, canal, fecha, payload y datos de auditoría del actor de Call Center.
+- `POST /agent/cases/{id}/notes` devuelve 201 con la nota interna. `PATCH /cases/{id}` admite `fields.study_id`, `clinic_id`, `slot_id` y `confirmed: true`; devuelve `{case, missing_steps, events}`. Ambos requieren verificación vigente del solicitante. Los eventos de auditoría de llamada incluyen `call_id`; el texto de las notas se guarda solo en `notes`.
+- Solo con `DEMO_MODE=true`, `POST /agent/patients/{person_id}/unlock` con Bearer de asesor restablece los intentos. `POST /demo/reset` también limpia los contadores al recrear los datos.
 
 ### 8.7 Administrador (rol `admin`)
 - `GET /admin/dashboard` → totales por estado, abandonados, **recuperados entre canales** (trámites con ≥ 2 canales distintos que avanzaron tras `canal_cambiado`), recorrido de canales por trámite, últimos eventos (enmascarados).
@@ -495,7 +505,7 @@ Los eventos se ordenan por `seq` en orden cronológico. Esta vista simple no exp
 }
 ```
 
-`POST /demo/reset` elimina también todos los registros de `mailbox_messages` antes de recargar el seed.
+`POST /demo/reset` y `python -m app.modules.demo.reset` desde `backend` reconstruyen las mismas tablas y recargan el mismo seed con `DEMO_MODE=true`. Se eliminan buzón, borradores, desafíos, bloqueos y verificaciones. El servidor rechaza las cookies de las sesiones previas y los JWT de personal emitidos antes del reset. La respuesta HTTP conserva `{"status":"ok"}` y elimina la cookie del navegador que hizo la solicitud. El inventario se imprime y se guarda en `docs/DEMO_DATA.md`.
 
 El buzón público de demo revela si se envió un mensaje a un correo. Está disponible únicamente con `DEMO_MODE=true` y no existe en producción.
 
@@ -559,14 +569,15 @@ Requisitos de UI: textos en español; estados de carga y error visibles; diseño
 
 ## 12. Datos de demo (seed) y credenciales
 
-Catálogo ficticio: 5 estudios (con instrucciones de preparación ficticias), 3 clínicas ("Clínica Puebla Centro (demo)", "Clínica Puebla Angelópolis (demo)", "Clínica Cholula (demo)"), horarios generados para los próximos 3 días entre 09:00 y 13:00 cada hora.
+Catálogo ficticio: 5 estudios (con instrucciones de preparación ficticias), 3 clínicas ("Clínica Puebla Centro (demo)", "Clínica Puebla Angelópolis (demo)", "Clínica Cholula (demo)"), horarios generados para los próximos 3 días entre 09:00 y 13:00 cada hora en `America/Mexico_City`. La API y la base conservan las marcas de tiempo en UTC. Los canales muestran los horarios y la línea de tiempo en hora de Ciudad de México.
 
 Personas semilla (todas ficticias, correos `@example.com`):
-- **Ana Demo**: **no existe** al inicio (el demo la crea desde la web).
+- **Ana Demo**: **no existe** al inicio. La web puede crearla con `ana.demo@example.com` y `+522220000001`, ambos libres tras el reset.
 - **Luis Demo**: `luis.demo@example.com`, `+522221111111`, nacimiento `1985-04-12`; trámite en `clinica_elegida`, marcado como abandonado.
 - **Marta Demo**: `marta.demo@example.com`, `+522229999999`, nacimiento `1982-08-20`.
 - **Pablo Demo**: `pablo.demo@example.com`, `+522229999999`, nacimiento `2012-03-15`. Marta y Pablo comparten el teléfono para el caso de ambigüedad.
-- Algunos trámites en estados variados para poblar el tablero.
+- Marta tiene el trámite `C-1002` para Pablo, con parentesco `hijo_a` y estado `horario_propuesto`. Hay siete trámites adicionales con recorridos por uno, dos y tres canales. El folio de esta demo usa el ID de trámite existente, con valores de `C-1001` a `C-1009`.
+- Personas, trámites y eventos semilla tienen identificadores fijos. Las fechas de los eventos y horarios son relativas al día del reset en UTC. Los hashes bcrypt se regeneran con sales nuevas, lo que invalida los JWT anteriores sin cambiar las credenciales de demo.
 
 Credenciales de prueba (documentar en README):
 - Asesor: `asesor` / `Asesor#2026`

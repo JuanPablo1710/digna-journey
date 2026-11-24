@@ -1,9 +1,11 @@
 
 from fastapi import APIRouter, Cookie, Response
+from sqlalchemy import select
 
-from ...db import SessionLocal
+from ...db import SessionLocal, lock_demo_writes
 from ...errors import APIError
 from ...schemas import VerificationConfirmData, VerificationRequestData
+from ...models import Event
 from .service import _identity, confirm_verification, request_verification
 
 
@@ -14,7 +16,13 @@ SESSION_COOKIE = "web_session"
 def _reject_invalidated_session(session, channel, identifier):
     if channel == "web" and identifier:
         identity = _identity(session, channel, identifier)
-        if identity is not None and (identity.session_state or {}).get("invalidated"):
+        known = not (identity.session_state or {}).get("invalidated") if identity is not None else (
+            session.scalar(select(Event.seq).where(
+                Event.channel == "web", Event.actor_id == identifier, Event.type == "contacto_creado",
+                Event.case_id.is_(None),
+            ).limit(1)) is not None
+        )
+        if not known:
             raise APIError(403, "session_expired", "La sesión web ya no está vigente.")
 
 
@@ -34,6 +42,7 @@ def request_identity_verification(
         raise APIError(403, "web_session_required", "Inicia una sesión web antes de verificar el correo.")
     with SessionLocal() as session:
         with session.begin():
+            lock_demo_writes(session)
             _reject_invalidated_session(session, data.channel, web_session)
             result = request_verification(
                 session,

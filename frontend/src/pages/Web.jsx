@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import SimulateNewDevice from "../SimulateNewDevice";
 import ResumeByEmail from "../ResumeByEmail";
+import { formatMexicoDateTime as formatSlot } from "../mexicoTime";
 
 import {
   cancelWebCase,
@@ -24,13 +25,6 @@ const relationshipLabels = {
   otro: "Otra persona",
 };
 
-function formatSlot(value) {
-  return new Intl.DateTimeFormat("es-MX", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(value));
-}
 
 function draftData(form, studyId) {
   const relationship = form.forWhom === "self" ? "self" : form.relationship;
@@ -618,7 +612,7 @@ export default function Web() {
               <h2 className="mt-4 text-2xl font-bold">Cita confirmada</h2>
               <p className="mt-2 text-slate-600">Tu folio ficticio es <strong>{caseData.id}</strong>.</p>
               <button className="button-primary mt-6" disabled={loading} onClick={scheduleAnotherStudy}>Agendar otro estudio</button>
-              <details className="mt-8 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-cyan-100 pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-slate-600">{event.type.replaceAll("_", " ")}</li>)}</ol></details>
+              <details className="mt-8 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-cyan-100 pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-slate-600"><time dateTime={event.timestamp}>{formatSlot(event.timestamp)}</time> · {event.type.replaceAll("_", " ")}</li>)}</ol></details>
             </div>
           )}
 
@@ -628,7 +622,7 @@ export default function Web() {
               <h2 className="mt-4 text-2xl font-bold">{cancelledKind === "case" ? "Trámite cancelado" : "Borrador descartado"}</h2>
               <p className="mt-2 text-slate-600">{cancelledKind === "case" ? "El trámite se conserva en tu línea de tiempo." : "Los datos incompletos ya no están guardados."}</p>
               {cancelledKind === "case" && timeline.length > 0 && (
-                <details className="mt-6 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-cyan-100 pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-slate-600">{event.type.replaceAll("_", " ")}</li>)}</ol></details>
+                <details className="mt-6 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-cyan-100 pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-slate-600"><time dateTime={event.timestamp}>{formatSlot(event.timestamp)}</time> · {event.type.replaceAll("_", " ")}</li>)}</ol></details>
               )}
               <button className="button-primary mt-8" disabled={loading} onClick={startNewCase}>Empezar un trámite nuevo</button>
             </div>

@@ -4,11 +4,11 @@ from fastapi import APIRouter, Cookie, Query, Response
 from sqlalchemy import select
 
 from ...config import settings
-from ...db import Base, SessionLocal, engine
+from ...db import SessionLocal
 from ...errors import APIError
 from ...models import ChannelIdentity, MailboxMessage
 from ..identity.service import new_id, normalize_email
-from .seed import seed_demo
+from .reset import reset_database
 
 
 router = APIRouter(prefix="/demo", tags=["demo"])
@@ -75,10 +75,8 @@ def get_mailbox(email: str = Query()) -> dict:
 
 
 @router.post("/reset")
-def reset_demo() -> dict[str, str]:
+def reset_demo(response: Response) -> dict[str, str]:
     _require_demo_mode()
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    with SessionLocal() as session:
-        seed_demo(session)
+    reset_database()
+    response.delete_cookie("web_session", httponly=True, samesite="lax")
     return {"status": "ok"}

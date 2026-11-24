@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ...catalog import CLINICS, STUDIES, get_demo_slots
+from ...catalog import CLINICS, MEXICO_CITY, STUDIES, get_demo_slots
 from ...errors import APIError
 from ...models import Case, ChannelIdentity, Event, Person, Verification
 from ...schemas import InteractionRequest
@@ -101,7 +101,7 @@ def _slot_replies(case: Case) -> list[dict[str, Any]]:
     slots = [slot for slot in get_demo_slots() if slot["clinic_id"] == case.clinic_id]
     return [
         _quick(
-            datetime.fromisoformat(slot["starts_at"].replace("Z", "+00:00")).strftime("%d/%m %H:%M"),
+            datetime.fromisoformat(slot["starts_at"]).astimezone(MEXICO_CITY).strftime("%d/%m %H:%M"),
             "select_slot",
             {"case_id": case.id, "expected_version": case.version, "slot_id": slot["id"]},
         )

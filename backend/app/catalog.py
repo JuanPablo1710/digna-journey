@@ -1,5 +1,6 @@
 from datetime import datetime, time, timedelta, timezone
 from typing import TypedDict
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query
 
@@ -33,16 +34,18 @@ CLINICS: list[Clinic] = [
 ]
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
+MEXICO_CITY = ZoneInfo("America/Mexico_City")
 
 
 def get_demo_slots(now: datetime | None = None) -> list[dict[str, str]]:
-    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    current = (now or datetime.now(timezone.utc)).astimezone(MEXICO_CITY)
     slots: list[dict[str, str]] = []
     for clinic in CLINICS:
         for day_offset in range(1, 4):
             slot_date = current.date() + timedelta(days=day_offset)
             for hour in range(9, 14):
-                starts_at = datetime.combine(slot_date, time(hour), tzinfo=timezone.utc)
+                local_start = datetime.combine(slot_date, time(hour), tzinfo=MEXICO_CITY)
+                starts_at = local_start.astimezone(timezone.utc)
                 slots.append(
                     {
                         "id": f"SL-{clinic['id']}-{slot_date:%Y%m%d}-{hour:02d}",
