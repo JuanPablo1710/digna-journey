@@ -36,6 +36,35 @@ class ChannelIdentity(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class Draft(Base):
+    __tablename__ = "drafts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    identity_id: Mapped[str] = mapped_column(ForeignKey("channel_identities.id"), unique=True)
+    requester_id: Mapped[str | None] = mapped_column(ForeignKey("persons.id"))
+    email: Mapped[str | None] = mapped_column(String, index=True)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ResumeChallenge(Base):
+    __tablename__ = "resume_challenges"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, index=True)
+    channel: Mapped[str] = mapped_column(String)
+    destination: Mapped[str] = mapped_column(String)
+    code_hash: Mapped[str] = mapped_column(String)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scope: Mapped[dict[str, Any]] = mapped_column(JSON)
+    selections: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
 class Verification(Base):
     __tablename__ = "verifications"
 

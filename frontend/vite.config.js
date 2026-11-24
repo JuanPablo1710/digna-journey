@@ -12,6 +12,7 @@ export default defineConfig({
       "/cases": "http://localhost:8000",
       "/identity": "http://localhost:8000",
       "/demo": "http://localhost:8000",
+      "/resume": "http://localhost:8000",
     },
   },
 });

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import ResumeByEmail from "../ResumeByEmail";
 
 import {
   cancelWebCase,
@@ -98,7 +99,7 @@ export default function Web() {
   async function displayCase(activeCase, studyItems = studies) {
     if (activeCase.pending) {
       setCaseData(null);
-      setPhase("verify_email");
+      setPhase("resume_email");
       return;
     }
     setCaseData(activeCase);
@@ -230,10 +231,28 @@ export default function Web() {
   }
 
   function openExistingCase() {
-    run(async () => {
-      await sendWebInteraction("start_quote");
-      setPhase("verify_email");
+    setPhase("resume_email");
+  }
+
+  async function displayResume(result) {
+    if (result.case) {
+      await displayCase(result.case);
+      return;
+    }
+    const { requester, patient, relationship = "self", study_id: study } = result.draft;
+    setCaseData(null);
+    setStudyId(study ?? "");
+    setQuote(studies.find((item) => item.id === study) ?? null);
+    setForm({
+      fullName: requester?.full_name ?? "", birthDate: requester?.birth_date ?? "",
+      email: requester?.email ?? "", phone: requester?.phone ?? "",
+      forWhom: !relationship || relationship === "self" ? "self" : "other",
+      relationship: relationship && relationship !== "self" ? relationship : "hijo_a",
+      patientName: patient?.full_name ?? "", patientBirthDate: patient?.birth_date ?? "",
     });
+    setHasDraft(true);
+    setDraftStatus("Guardado");
+    setPhase(study ? "preregister" : "study");
   }
 
   function sendLoginOtp(event) {
@@ -469,6 +488,9 @@ export default function Web() {
             </div>
           )}
 
+          {phase === "resume_email" && (
+            <ResumeByEmail studies={studies} clinics={clinics} onSelected={displayResume} onClose={() => setPhase("start")} />
+          )}
           {phase === "verify_email" && (
             <form className="mx-auto max-w-md" onSubmit={sendLoginOtp}>
               <h2 className="section-title">Recupera tu trámite</h2>

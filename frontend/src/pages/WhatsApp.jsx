@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import ResumeByEmail from "../ResumeByEmail";
 
-import { resetWhatsAppConversation, sendWhatsAppInteraction } from "../api";
+import { getClinics, getStudies, resetWhatsAppConversation, sendWhatsAppInteraction } from "../api";
 
 
 const demoNumbers = [
@@ -19,10 +20,36 @@ export default function WhatsApp() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [resumeChallenge, setResumeChallenge] = useState(null);
+  const [studies, setStudies] = useState([]);
+  const [clinics, setClinics] = useState([]);
   const phone = useMemo(
     () => (numberOption === "custom" ? customNumber.trim() : numberOption),
     [numberOption, customNumber],
   );
+
+  useEffect(() => {
+    setResumeOpen(false);
+    setResumeChallenge(null);
+  }, [phone]);
+
+  function openResume() {
+    setResumeOpen(true);
+    Promise.all([getStudies(), getClinics()]).then(([studyList, clinicList]) => {
+      setStudies(studyList);
+      setClinics(clinicList);
+    }).catch((reason) => setError(reason.message));
+  }
+
+  async function displayResume(selected, challengeId) {
+    const result = await sendWhatsAppInteraction({
+      phone, action: "continue_case", data: { resume_challenge_id: challengeId },
+    });
+    setMessages(result.messages.map((message) => ({ ...message, side: "received" })));
+    setResumeChallenge(challengeId);
+    setResumeOpen(false);
+  }
 
   function appendResponse(result) {
     setMessages((current) => [
@@ -56,16 +83,17 @@ export default function WhatsApp() {
     if (!content || !phone) return;
     setMessages((current) => [...current, { side: "sent", text: safeUserText(content), quick_replies: [] }]);
     setInput("");
-    run(() => sendWhatsAppInteraction({ phone, content }));
+    run(() => sendWhatsAppInteraction({ phone, content, data: { resume_challenge_id: resumeChallenge } }));
   }
 
   function chooseReply(reply) {
     setMessages((current) => [...current, { side: "sent", text: reply.label, quick_replies: [] }]);
-    run(() => sendWhatsAppInteraction({ phone, action: reply.action, data: reply.payload }));
+    run(() => sendWhatsAppInteraction({ phone, action: reply.action, data: { ...reply.payload, resume_challenge_id: resumeChallenge } }));
   }
 
   function resetConversation() {
     setMessages([]);
+    setResumeChallenge(null);
     run(() => resetWhatsAppConversation(phone));
   }
 
@@ -99,8 +127,10 @@ export default function WhatsApp() {
 
           <div className="mt-5 flex flex-wrap gap-3">
             <button className="button-primary" disabled={loading || !phone} onClick={startConversation}>Iniciar conversación</button>
+            <button type="button" className="option-button" disabled={loading || !phone} onClick={openResume}>Retomar con mi correo</button>
             <button className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50" disabled={loading || !phone} onClick={resetConversation}>Reiniciar conversación</button>
           </div>
+          {resumeOpen && <ResumeByEmail phone={phone} studies={studies} clinics={clinics} onSelected={displayResume} onClose={() => setResumeOpen(false)} />}
           <a className="mt-5 inline-block text-sm font-semibold text-emerald-700 hover:underline" href="/mailbox">Abrir buzón simulado →</a>
           <p className="mt-3 text-xs text-slate-500">Para Ana creada desde `/web`, selecciona “Otro número” y usa el teléfono de su preregistro.</p>
         </section>

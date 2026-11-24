@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 
 from ...catalog import CLINICS, STUDIES, get_demo_slots
 from ...config import settings
-from ...db import SessionLocal
+from ...db import SessionLocal, lock_demo_writes
 from ...errors import APIError
 from ...models import Case, ChannelIdentity, Event, Person
 from ...schemas import CaseActionData, DraftData, InteractionRequest, PreregisterData
 from ..cases import case_view, derive_status, empty_steps, missing_steps, update_case
 from ..events import append_event, public_event_view
+from ..drafts import discard_draft_record, save_draft_record
 from ..identity.service import ensure_complete_person, trust_level as identity_trust_level
 
 
@@ -163,7 +164,8 @@ def _draft(identity: ChannelIdentity) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _clear_draft(identity: ChannelIdentity) -> None:
+def _clear_draft(session: Session, identity: ChannelIdentity) -> None:
+    discard_draft_record(session, identity)
     state = dict(identity.session_state or {})
     for key in (
         "draft",
@@ -248,6 +250,9 @@ def _save_draft(session: Session, request: InteractionRequest) -> dict[str, Any]
         if isinstance(stored, dict):
             return stored
 
+    if state.get("draft_transferred"):
+        raise APIError(409, "draft_transferred", "El borrador se retomó en otra sesión.")
+
     if _active_case(session, identity.person_id) is not None:
         return _response(
             session,
@@ -272,6 +277,7 @@ def _save_draft(session: Session, request: InteractionRequest) -> dict[str, Any]
             )
 
     merged = _merge_draft(_draft(identity) or {}, patch)
+    save_draft_record(session, identity, merged)
     identity.last_seen_at = _utc_now()
     result = _response(
         session,
@@ -402,7 +408,11 @@ def _continue_case(
 
     draft = _draft(identity)
     visible_cases = _visible_cases(session, identity)
-    case = next((item for item in visible_cases if item.status != "cancelado"), None)
+    active_cases = [item for item in visible_cases if item.status != "cancelado"]
+    selected_id = (identity.session_state or {}).get("resume_case_id")
+    case = next((item for item in active_cases if item.id == selected_id), None)
+    if case is None and active_cases:
+        case = active_cases[0]
     identity.last_seen_at = _utc_now()
     if case is None and draft is not None:
         return _response(
@@ -513,6 +523,8 @@ def _preregister(session: Session, request: InteractionRequest) -> dict[str, Any
         raise APIError(422, "missing_patient", "Captura los datos de la persona que recibirá el estudio.")
 
     identity = _identity(session, request.identifier)
+    if identity and (identity.session_state or {}).get("draft_transferred"):
+        raise APIError(409, "draft_transferred", "El borrador se retomó en otra sesión.")
     if identity is None or identity.person_id is None:
         requester = _create_person(data.requester)
         session.add(requester)
@@ -538,7 +550,7 @@ def _preregister(session: Session, request: InteractionRequest) -> dict[str, Any
         requester.phone = _normalize_phone(data.requester.phone)
         identity.last_seen_at = _utc_now()
 
-    _clear_draft(identity)
+    _clear_draft(session, identity)
 
     if data.relationship == "self":
         patient = requester
@@ -638,7 +650,7 @@ def _cancel_case(
             )
         if cookie_identifier != request.identifier or not _identity_is_fresh(identity):
             raise APIError(403, "session_expired", "La sesión de origen expiró.")
-        _clear_draft(identity)
+        _clear_draft(session, identity)
         identity.last_seen_at = _utc_now()
         return _response(
             session,
@@ -653,7 +665,7 @@ def _cancel_case(
     case = _load_case(session, data.case_id)
     identity = _origin_identity(session, request.identifier, case)
     _check_version(session, case, data.expected_version)
-    _clear_draft(identity)
+    _clear_draft(session, identity)
     if case.status == "cancelado":
         return _response(
             session,
@@ -729,7 +741,7 @@ def _new_case(
         idempotency_key=request.idempotency_key,
     )
     identity.last_seen_at = _utc_now()
-    _clear_draft(identity)
+    _clear_draft(session, identity)
     session.flush()
     visible_cases = _visible_cases(session, identity)
     result = _response(
@@ -815,6 +827,7 @@ def web_interaction(
     with SessionLocal() as session:
         try:
             with session.begin():
+                lock_demo_writes(session)
                 existing_identity = _identity(session, request.identifier)
                 if request.action != "continue_case" and existing_identity is not None:
                     if web_session != request.identifier or not _identity_is_fresh(existing_identity):

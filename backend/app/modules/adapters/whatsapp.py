@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Cookie, Header
 
 from ...config import settings
-from ...db import SessionLocal
+from ...db import SessionLocal, lock_demo_writes
 from ...errors import APIError
 from ...models import Case
 from ...schemas import InteractionRequest
 from ..conversation import process_interaction, reset_conversation
 from ..events import append_event
 from ..identity.service import normalize_phone
+from ..resume import bind_whatsapp_resume
 
 
 router = APIRouter(tags=["whatsapp"])
@@ -17,6 +18,7 @@ router = APIRouter(tags=["whatsapp"])
 def whatsapp_interaction(
     request: InteractionRequest,
     channel_key: str = Header(alias="X-Channel-Key"),
+    web_session: str | None = Cookie(None),
 ) -> dict:
     if channel_key != settings.channel_key_whatsapp:
         raise APIError(403, "invalid_channel_key", "La clave del canal no es válida.")
@@ -30,8 +32,11 @@ def whatsapp_interaction(
     with SessionLocal() as session:
         try:
             with session.begin():
+                lock_demo_writes(session)
                 if request.action == "reset_conversation":
                     return reset_conversation(session, normalized, demo_mode=settings.demo_mode)
+                if request.data.get("resume_challenge_id"):
+                    bind_whatsapp_resume(session, request.data["resume_challenge_id"], web_session, normalized)
                 return process_interaction(session, normalized_request)
         except APIError as exc:
             if exc.status_code == 403 and request.action != "reset_conversation":

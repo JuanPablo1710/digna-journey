@@ -57,6 +57,10 @@ Los endpoints públicos de catálogo y la documentación de la API están dispon
 
 ## Pruebas
 
+Para probar la retoma por correo, inicia un agendamiento en `/whatsapp` con un número desconocido y detente después de capturar un correo ficticio. En `/web`, elige **Ya tengo un trámite**, solicita el código y léelo en `/mailbox`. Verifica el código y selecciona el borrador. El formulario Web conserva lo capturado y el borrador deja de estar disponible en el número de origen. También puedes recuperar un trámite semilla con `luis.demo@example.com`.
+
+El buzón es público en modo demo y permite saber si se envió un correo. No existe en producción. Los borradores anteriores guardados solo en `session_state` no se migran. Para una demo desde cero, recrea SQLite con el procedimiento de configuración anterior.
+
 ```powershell
 cd backend
 pytest

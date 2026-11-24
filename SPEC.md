@@ -110,6 +110,10 @@ IDs: cadenas cortas legibles (`P-0001`, `C-0001`, `evt_...`). Fechas en UTC ISO-
 
 **notes**: `id`, `case_id`, `author_user_id`, `text`, `created_at`.
 
+**drafts**: `id`, `identity_id` (único mientras el canal posee el borrador), `requester_id` (opcional), `email` (normalizado e indexado), `data`, `version`, `updated_at`, `expires_at`. Las escrituras de Web y WhatsApp actualizan el registro junto con su estado de canal. En producción se puede usar un índice sobre un HMAC del correo canónico con clave separada.
+
+**resume_challenges**: `id`, `email`, `channel`, `destination`, `code_hash`, `attempts`, `expires_at`, `locked_until`, `valid_until`, `scope`, `selections`. La solicitud limpia los intentos ya vencidos cuando tampoco existe un bloqueo ni autorización vigente.
+
 **mailbox_messages** (solo demo): `id`, `email`, `subject`, `body`, `code`, `created_at`. Guarda el contenido del correo simulado y el OTP en claro únicamente para `/demo/mailbox` cuando `DEMO_MODE=true`. `code` y `body` nunca se incluyen en eventos, logs ni respuestas normales de la API. `verifications.code_hash` sigue siendo la única copia del código usada para validar.
 
 ---
@@ -445,6 +449,13 @@ En S1, `GET /cases/{id}/timeline` devuelve:
 
 Los eventos se ordenan por `seq` en orden cronológico. Esta vista simple no expone `person_id`, `actor_id`, `idempotency_key` ni datos internos usados para reconstruir una respuesta idempotente.
 
+#### Retoma por correo
+
+- `POST /resume/request` recibe `{channel, email, phone?}`. WhatsApp requiere teléfono simulado y `X-Channel-Key`. Devuelve 202 con `{challenge_id, message}` y la misma frase para coincidencias y búsquedas sin resultado. El envío simulado ocurre después de responder. La cookie HTTP-only vincula el intento al navegador. El mismo correo y destino reutilizan un intento pendiente.
+- `POST /resume/confirm` recibe `{challenge_id, code}`. El código dura cinco minutos, hay tres intentos y el tercer fallo bloquea diez minutos. Tras acertar devuelve `{items}` con `kind, id, version, study_id, clinic_id, status, channel, updated_at`. Un correo compartido permite retomar borradores de ese correo exacto. Los trámites requieren una coincidencia única de solicitante. La autorización dura 30 minutos.
+- `POST /resume/select` recibe `{challenge_id, kind, id, expected_version, idempotency_key}`. Devuelve `{case}` o `{draft}` y, en Web, `session_identifier`. Una selección repetida con la misma clave no vuelve a escribir. La transferencia del borrador quita el acceso en el canal anterior y cambia su versión en la misma transacción. Un destino que ya tiene un borrador devuelve 409. En WhatsApp las interacciones posteriores usan `data.resume_challenge_id` con la misma cookie y número. Una identidad existente ligada a otra persona conserva ese vínculo.
+- La retoma dentro de la sesión de origen conserva su vigencia de 30 minutos. Los eventos del flujo por correo registran métodos, resultados y referencias opacas.
+
 ### 8.6 Asesor (rol `asesor`)
 - `GET /agent/lookup?phone=|email=` → coincidencias (solo nombre enmascarado y nivel 1).
 - `POST /agent/verify` `{person_id, method:"agent_assisted", birth_date}` → verificación asistida.
@@ -482,6 +493,8 @@ Los eventos se ordenan por `seq` en orden cronológico. Esta vista simple no exp
 ```
 
 `POST /demo/reset` elimina también todos los registros de `mailbox_messages` antes de recargar el seed.
+
+El buzón público de demo revela si se envió un mensaje a un correo. Está disponible únicamente con `DEMO_MODE=true` y no existe en producción.
 
 ---
 

@@ -39,7 +39,7 @@ def public_event_view(event: Event) -> dict[str, Any]:
     timestamp = event.timestamp
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=timezone.utc)
-    payload = {key: value for key, value in (event.payload or {}).items() if key != "_response"}
+    payload = {key: value for key, value in (event.payload or {}).items() if not key.startswith("_")}
     return {
         "event_id": event.event_id,
         "type": event.type,

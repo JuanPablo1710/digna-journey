@@ -40,6 +40,38 @@ export async function getHealth() {
   return request("/health");
 }
 
+export async function requestResume(email, phone) {
+  return request("/resume/request", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(phone ? { "X-Channel-Key": WHATSAPP_CHANNEL_KEY } : {}),
+    },
+    body: JSON.stringify({ channel: phone ? "whatsapp" : "web", email, phone }),
+  });
+}
+
+function resumePost(path, data) {
+  return request(`/resume/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function confirmResume(challengeId, code) {
+  return resumePost("confirm", { challenge_id: challengeId, code });
+}
+
+export async function selectResume(challengeId, item, key) {
+  const result = await resumePost("select", {
+    challenge_id: challengeId, kind: item.kind, id: item.id,
+    expected_version: item.version, idempotency_key: key,
+  });
+  if (result.session_identifier) setWebSession(result.session_identifier);
+  return result;
+}
+
 export async function getStudies() {
   return request("/catalog/studies");
 }

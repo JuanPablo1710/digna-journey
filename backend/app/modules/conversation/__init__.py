@@ -14,6 +14,7 @@ from ...models import Case, ChannelIdentity, Event, Person, Verification
 from ...schemas import InteractionRequest
 from ..cases import case_view, change_channel, check_version, create_case, missing_steps, update_case
 from ..events import append_event
+from ..drafts import discard_draft_record, save_draft_record
 from ..identity.service import (
     VERIFICATION_TTL,
     aware,
@@ -108,6 +109,11 @@ def _slot_replies(case: Case) -> list[dict[str, Any]]:
 
 
 def _active_case(session: Session, person_id: str | None) -> Case | None:
+    selected = session.info.get("resume_case_ids")
+    if selected:
+        case = session.get(Case, selected[-1])
+        if case is not None and case.status != "cancelado":
+            return case
     if person_id is None:
         return None
     return session.scalar(
@@ -116,6 +122,12 @@ def _active_case(session: Session, person_id: str | None) -> Case | None:
         .order_by(Case.created_at.desc())
         .limit(1)
     )
+
+
+def _case_trust(session, channel, identifier, case=None):
+    if case is not None and case.id in session.info.get("resume_case_ids", []):
+        return 2
+    return trust_level(session, channel=channel, identifier=identifier, case=case)
 
 
 def _summary(case: Case) -> str:
@@ -208,6 +220,7 @@ def reset_conversation(session: Session, identifier: str, *, demo_mode: bool) ->
     now = utc_now()
     identity = _identity(session, identifier)
     if identity is not None:
+        discard_draft_record(session, identity)
         identity.session_state = {}
         identity.last_seen_at = now
     verifications = session.scalars(
@@ -443,6 +456,19 @@ def _handle(
     stage = conversation.get("stage")
     value = _input_value(request)
 
+    if session.info.get("resume_case_ids") and request.action == "continue_case":
+        selected = _active_case(session, None)
+        if selected is not None:
+            return identity, selected, 2, _case_prompt(selected)
+    if request.action == "continue_case" and stage and stage.startswith("collect_"):
+        case, messages = _collect_unknown_data(session, identity, request.model_copy(update={"data": {}}))
+        return identity, case, 0, messages
+    if identity and (identity.session_state or {}).get("draft_transferred"):
+        if request.action == "start_booking" or (request.kind == "message" and value.lower() == "agendar"):
+            identity.session_state = {key: val for key, val in identity.session_state.items() if key != "draft_transferred"}
+        else:
+            return identity, None, 0, _initial_messages()
+
     if recognition["state"] == "ambiguous":
         if value and (stage == "awaiting_dob" or "/" in value or "-" in value):
             identity, messages, _ = _request_otp_after_dob(session, request.identifier, value)
@@ -451,12 +477,12 @@ def _handle(
 
     person = session.get(Person, identity.person_id) if identity and identity.person_id else None
     active_case = _active_case(session, identity.person_id if identity else None)
-    level = trust_level(session, channel="whatsapp", identifier=request.identifier, case=active_case)
+    level = _case_trust(session, channel="whatsapp", identifier=request.identifier, case=active_case)
 
-    if stage == "awaiting_dob":
+    if stage == "awaiting_dob" and level < 2:
         identity, messages, _ = _request_otp_after_dob(session, request.identifier, value)
         return identity, active_case, 1, messages
-    if stage == "awaiting_otp":
+    if stage == "awaiting_otp" and level < 2:
         case, messages, succeeded = _confirm_otp(session, identity, value)
         return identity, case or active_case, 2 if succeeded else 1, messages
 
@@ -513,6 +539,8 @@ def _handle(
     if action == "new_case":
         if level < 2:
             return identity, active_case, level, _recognized_prompt(person) if person and person.full_name else _initial_messages()
+        if person is None or not person.full_name or not person.birth_date:
+            return identity, active_case, level, [_message("Elige Agendar cita para iniciar un trámite con este número.")]
         new_case, _ = create_case(session, requester=person, patient=person, relationship="self", channel="whatsapp", actor_id=request.identifier)
         state = dict(identity.session_state or {})
         if state.get("started_unknown") is True:
@@ -530,8 +558,8 @@ def _handle(
         case = session.get(Case, request.data.get("case_id"))
         if case is None:
             raise APIError(404, "case_not_found", "El trámite solicitado no existe.")
-        level = trust_level(session, channel="whatsapp", identifier=request.identifier, case=case)
-        if identity is None or identity.person_id != case.requester_id or level < 2:
+        level = _case_trust(session, channel="whatsapp", identifier=request.identifier, case=case)
+        if identity is None or level < 2:
             raise APIError(403, "verification_required", "Necesitas verificar tu identidad para continuar.")
         update_case(
             session,
@@ -551,8 +579,8 @@ def _handle(
         case = session.get(Case, request.data.get("case_id"))
         if case is None:
             raise APIError(404, "case_not_found", "El trámite solicitado no existe.")
-        level = trust_level(session, channel="whatsapp", identifier=request.identifier, case=case)
-        if identity is None or identity.person_id != case.requester_id or level < 2:
+        level = _case_trust(session, channel="whatsapp", identifier=request.identifier, case=case)
+        if identity is None or level < 2:
             raise APIError(403, "verification_required", "Necesitas verificar tu identidad para continuar.")
         check_version(session, case, int(request.data.get("expected_version", 0)))
         change_channel(session, case, channel="whatsapp", actor_id=request.identifier)
@@ -571,8 +599,16 @@ def _handle(
 def process_interaction(session: Session, request: InteractionRequest) -> dict[str, Any]:
     duplicate = session.scalar(select(Event).where(Event.idempotency_key == request.idempotency_key))
     if duplicate is not None:
+        if duplicate.channel != "whatsapp" or duplicate.actor_id != request.identifier:
+            raise APIError(409, "idempotency_conflict", "La clave ya se usó en otra interacción.")
         stored = (duplicate.payload or {}).get("_response")
         if isinstance(stored, dict):
+            if duplicate.payload.get("_resume_challenge") != session.info.get("resume_challenge_id"):
+                raise APIError(403, "resume_denied", "Verifica tu correo para continuar.")
+            if session.info.get("resume_challenge_id") and duplicate.payload.get("_case_id"):
+                case = session.get(Case, duplicate.payload["_case_id"])
+                if case is not None and _case_trust(session, "whatsapp", request.identifier, case) >= 2:
+                    return {**stored, "case": case_view(session, case)}
             return stored
 
     start_seq = session.scalar(select(func.max(Event.seq))) or 0
@@ -586,6 +622,9 @@ def process_interaction(session: Session, request: InteractionRequest) -> dict[s
     normalized_request = request.model_copy(update={"identifier": recognition["identifier"]})
     identity = _identity(session, recognition["identifier"])
     if identity is not None:
+        bound = (identity.session_state or {}).get("resume_draft_challenge")
+        if bound and bound != session.info.get("resume_challenge_id"):
+            raise APIError(403, "resume_denied", "Verifica tu correo para continuar.")
         _expire_origin_if_needed(identity)
         if recognition["state"] == "unknown" and not identity.session_state:
             identity.session_state = {"started_unknown": True, "origin_case_ids": []}
@@ -603,6 +642,18 @@ def process_interaction(session: Session, request: InteractionRequest) -> dict[s
     identity, case, level, messages = _handle(session, normalized_request, recognition, identity)
     if identity is not None:
         identity.last_seen_at = utc_now()
+        current = _conversation(identity)
+        if current != conversation:
+            data = current.get("data") or {}
+            if current.get("stage", "").startswith("collect_"):
+                save_draft_record(session, identity, {
+                    "requester": {key: data[key] for key in ("full_name", "birth_date", "email") if key in data}
+                    | {"phone": identity.identifier},
+                    "relationship": data.get("relationship"),
+                    "patient": {"full_name": data.get("patient_name"), "birth_date": data.get("patient_birth_date")},
+                })
+            elif conversation.get("stage", "").startswith("collect_"):
+                discard_draft_record(session, identity)
     for item in messages:
         append_event(
             session,
@@ -623,5 +674,9 @@ def process_interaction(session: Session, request: InteractionRequest) -> dict[s
         messages=messages,
         event_types=list(event_types),
     )
-    received.payload = {**(received.payload or {}), "_response": result}
+    resume_id = session.info.get("resume_challenge_id")
+    received.payload = {**(received.payload or {}),
+                        "_response": {**result, "case": None} if resume_id else result,
+                        "_case_id": case.id if resume_id and case else None,
+                        "_resume_challenge": resume_id}
     return result
