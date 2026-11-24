@@ -135,11 +135,15 @@ def _items(session, challenge):
     items = [
         dict(kind="case", id=case.id, version=case.version, status=case.status,
              study_id=case.study_id, clinic_id=case.clinic_id, channel=case.last_channel,
+             relationship=case.relationship, patient_name=session.get(Person, case.patient_id).full_name,
              updated_at=aware(case.updated_at).isoformat())
         for case in cases
     ] + [
         dict(kind="draft", id=draft.id, version=draft.version, status="borrador",
              study_id=draft.data.get("study_id"), clinic_id=None,
+             relationship=draft.data.get("relationship"),
+             patient_name=((draft.data.get("requester") if draft.data.get("relationship") == "self"
+                            else draft.data.get("patient")) or {}).get("full_name"),
              channel=session.get(ChannelIdentity, draft.identity_id).channel,
              updated_at=aware(draft.updated_at).isoformat())
         for draft in drafts

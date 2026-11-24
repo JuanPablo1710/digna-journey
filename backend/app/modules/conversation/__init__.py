@@ -64,6 +64,7 @@ def _initial_messages() -> list[dict[str, Any]]:
             [
                 _quick("Cotizar estudio", "start_quote"),
                 _quick("Agendar cita", "start_booking"),
+                _quick("Retomar un trámite", "resume_menu"),
             ],
         )
     ]
@@ -345,7 +346,10 @@ def _collect_unknown_data(
             _save_conversation(identity, conversation)
             return _finish_unknown_profile(session, identity, conversation)
         if normalized in {"other", "otra", "otra persona"}:
-            next_stage, prompt = "collect_relationship", "Indica el parentesco."
+            next_stage, prompt = "collect_relationship", (
+                "Aviso de privacidad simulado: los datos del paciente se usan para gestionar su cita. "
+                "Continúa solo si tienes permiso para compartirlos. Indica el parentesco."
+            )
         else:
             return None, [_message("¿Para quién es el estudio?", [_quick("Para mí", "answer", {"value": "self"}), _quick("Otra persona", "answer", {"value": "other"})])]
     elif stage == "collect_relationship":

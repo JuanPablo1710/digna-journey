@@ -80,6 +80,14 @@ pytest
 
 Marta y Pablo comparten deliberadamente el mismo teléfono para probar la desambiguación por fecha de nacimiento.
 
+## Cómo probar trámite para otra persona
+
+1. En `/web`, elige **Ya tengo un trámite** y verifica `marta.demo@example.com` con el OTP del buzón. Selecciona el trámite de Marta.
+2. Pulsa **Agendar para otra persona**, elige un estudio y revisa el aviso de privacidad. Conserva los datos de Marta como solicitante. Selecciona **Hijo o hija** y captura **Pablo Demo**, nacido el `15/03/2012`, como paciente. Guarda el trámite y elige una clínica.
+3. En `/whatsapp`, selecciona el número compartido de Marta y Pablo. Dentro del chat elige **Retomar un trámite → Con mi correo**. Escribe el correo de Marta y su nuevo OTP. La lista debe distinguir los trámites para Marta y para Pablo. Elige el de Pablo y continúa con el horario.
+4. Repite la retoma con `pablo.demo@example.com`. Pablo puede ver sus trámites propios del seed. El que creó Marta para él aparece en la lista de Marta.
+5. Para probar la captura de un tercero desde WhatsApp, usa un número simulado libre y una variante ficticia como `marta.whatsapp@example.com`. Escribe «agendar», captura los datos de Marta y selecciona **Otra persona**. El chat muestra el aviso antes de pedir parentesco, nombre y fecha de nacimiento de Pablo.
+
 ## Prueba manual de identidad S2
 
 1. Abre `http://localhost:5173/web` en una sesión nueva y elige **Ya tengo un trámite**.

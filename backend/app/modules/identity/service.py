@@ -274,6 +274,9 @@ def request_verification(
         if birth_date is None:
             raise APIError(422, "birth_date_required", "La fecha de nacimiento es obligatoria.")
         matches = session.scalars(select(Person).where(Person.phone == phone)).all()
+        linked = _identity(session, channel, phone)
+        if linked and linked.person_id:
+            matches = [person for person in matches if person.id == linked.person_id]
         if not matches:
             return {"_error": (404, "unknown_identifier", "No encontramos datos para ese teléfono.", {})}
         matched = [person for person in matches if person.birth_date == birth_date]

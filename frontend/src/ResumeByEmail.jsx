@@ -49,6 +49,7 @@ export default function ResumeByEmail({ phone, studies, clinics, onSelected, onC
                 <span className="block text-sm font-normal">
                   {clinics.find((clinic) => clinic.id === item.clinic_id)?.name ?? "Clínica por elegir"}
                   {" · "}{item.status.replaceAll("_", " ")}{" · "}{item.channel}
+                  {" · Para: "}{item.patient_name ?? "Paciente por indicar"}
                   {" · "}{new Date(item.updated_at).toLocaleString("es-MX")}
                 </span>
               </button>

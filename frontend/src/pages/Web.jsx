@@ -68,6 +68,7 @@ function Progress({ current }) {
 
 export default function Web() {
   const [phase, setPhase] = useState("start");
+  const [thirdParty, setThirdParty] = useState(false);
   const [studies, setStudies] = useState([]);
   const [clinics, setClinics] = useState([]);
   const [slots, setSlots] = useState([]);
@@ -196,12 +197,12 @@ export default function Web() {
   }
 
   useEffect(() => {
-    if (phase !== "preregister") return undefined;
+    if (phase !== "preregister" || thirdParty) return undefined;
     setDraftStatus("Guardando...");
     window.clearTimeout(draftTimerRef.current);
     draftTimerRef.current = window.setTimeout(() => persistDraft(form), 600);
     return () => window.clearTimeout(draftTimerRef.current);
-  }, [form, phase, studyId]);
+  }, [form, phase, studyId, thirdParty]);
 
   const currentStep = useMemo(
     () => ({ start: 0, verify_email: 0, verify_code: 0, study: 0, preregister: 1, clinic: 2, slot: 3, confirm: 4, done: 4, cancelled: 4 })[phase] ?? 0,
@@ -219,7 +220,7 @@ export default function Web() {
   }
 
   function flushDraft() {
-    if (phase !== "preregister") return;
+    if (phase !== "preregister" || thirdParty) return;
     window.clearTimeout(draftTimerRef.current);
     persistDraft(form);
   }
@@ -254,6 +255,16 @@ export default function Web() {
     setHasDraft(true);
     setDraftStatus("Guardado");
     setPhase(study ? "preregister" : "study");
+  }
+
+  function bookForSomeoneElse() {
+    setThirdParty(true);
+    setForm((current) => ({ ...current, forWhom: "other", relationship: "hijo_a", patientName: "", patientBirthDate: "" }));
+    setCaseData(null);
+    setStudyId("");
+    setQuote(null);
+    setTimeline([]);
+    setPhase("study");
   }
 
   function sendLoginOtp(event) {
@@ -333,6 +344,7 @@ export default function Web() {
         };
       }
       const result = await sendWebInteraction("preregister", data);
+      setThirdParty(false);
       setCaseData(result.case);
       setHasDraft(false);
       setDraftStatus("");
@@ -479,6 +491,11 @@ export default function Web() {
         )}
 
         <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          {caseData && !caseData.pending && phase !== "cancelled" && (
+            <button type="button" className="mb-4 text-sm font-semibold text-cyan-800 underline" disabled={loading} onClick={bookForSomeoneElse}>
+              Agendar para otra persona
+            </button>
+          )}
           {phase === "start" && (
             <div className="py-10 text-center">
               <h2 className="text-3xl font-bold">Tu salud, sin empezar de nuevo</h2>
@@ -543,10 +560,10 @@ export default function Web() {
               </div>
               {quote && <div className="mt-4 rounded-xl bg-cyan-50 p-4 text-cyan-950"><strong>{quote.name}</strong> · ${quote.price} MXN</div>}
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <label className="field sm:col-span-2">Nombre completo<input required name="fullName" value={form.fullName} onChange={updateForm} /></label>
-                <label className="field">Fecha de nacimiento<input required type="date" name="birthDate" value={form.birthDate} onChange={updateForm} /></label>
-                <label className="field">Teléfono<input required type="tel" name="phone" placeholder="222 123 4567" value={form.phone} onChange={updateForm} /></label>
-                <label className="field sm:col-span-2">Correo electrónico<input required type="email" name="email" value={form.email} onChange={updateForm} /></label>
+                <label className="field sm:col-span-2">Nombre completo<input required readOnly={thirdParty} name="fullName" value={form.fullName} onChange={updateForm} /></label>
+                <label className="field">Fecha de nacimiento<input required readOnly={thirdParty} type="date" name="birthDate" value={form.birthDate} onChange={updateForm} /></label>
+                <label className="field">Teléfono<input required readOnly={thirdParty} type="tel" name="phone" placeholder="222 123 4567" value={form.phone} onChange={updateForm} /></label>
+                <label className="field sm:col-span-2">Correo electrónico<input required readOnly={thirdParty} type="email" name="email" value={form.email} onChange={updateForm} /></label>
                 <fieldset className="sm:col-span-2">
                   <legend className="text-sm font-semibold">¿Para quién es el estudio?</legend>
                   <div className="mt-2 flex gap-4">
@@ -556,6 +573,7 @@ export default function Web() {
                 </fieldset>
                 {form.forWhom === "other" && (
                   <>
+                    <p className="text-sm text-slate-700 sm:col-span-2">Aviso de privacidad simulado. Los datos del paciente se usan para gestionar su cita. Continúa solo si tienes permiso para compartirlos.</p>
                     <label className="field">Parentesco<select name="relationship" value={form.relationship} onChange={updateForm}>{Object.entries(relationshipLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                     <label className="field">Nombre del paciente<input required name="patientName" value={form.patientName} onChange={updateForm} /></label>
                     <label className="field">Fecha de nacimiento del paciente<input required type="date" name="patientBirthDate" value={form.patientBirthDate} onChange={updateForm} /></label>

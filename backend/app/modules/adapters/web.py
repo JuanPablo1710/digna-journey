@@ -546,18 +546,24 @@ def _preregister(session: Session, request: InteractionRequest) -> dict[str, Any
             identity.last_seen_at = _utc_now()
     else:
         requester = session.get(Person, identity.person_id)
-        requester.full_name = data.requester.full_name.strip()
-        requester.birth_date = data.requester.birth_date
-        requester.email = _normalize_email(data.requester.email)
-        requester.phone = _normalize_phone(data.requester.phone)
+        if (requester.full_name != data.requester.full_name.strip()
+                or requester.birth_date != data.requester.birth_date
+                or requester.email != _normalize_email(data.requester.email)
+                or requester.phone != _normalize_phone(data.requester.phone)):
+            raise APIError(422, "requester_mismatch", "Usa los datos del solicitante de esta sesión.")
         identity.last_seen_at = _utc_now()
 
     _clear_draft(session, identity)
+    state = dict(identity.session_state or {})
+    state.pop("resume_case_id", None)
+    identity.session_state = state
 
     if data.relationship == "self":
         patient = requester
     else:
         patient = _create_person(data.patient)
+        patient.email = None
+        patient.phone = None
         session.add(patient)
 
     ensure_complete_person(requester)

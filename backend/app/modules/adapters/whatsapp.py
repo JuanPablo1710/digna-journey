@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Cookie, Header
+from fastapi import APIRouter, BackgroundTasks, Cookie, Header, Response
 
 from ...config import settings
 from ...db import SessionLocal, lock_demo_writes
@@ -9,6 +9,7 @@ from ..conversation import process_interaction, reset_conversation
 from ..events import append_event
 from ..identity.service import normalize_phone
 from ..resume import bind_whatsapp_resume
+from .whatsapp_resume import ACTIONS, handle_chat_resume
 
 
 router = APIRouter(tags=["whatsapp"])
@@ -17,6 +18,8 @@ router = APIRouter(tags=["whatsapp"])
 @router.post("/channels/whatsapp/interactions")
 def whatsapp_interaction(
     request: InteractionRequest,
+    background: BackgroundTasks,
+    response: Response,
     channel_key: str = Header(alias="X-Channel-Key"),
     web_session: str | None = Cookie(None),
 ) -> dict:
@@ -29,6 +32,13 @@ def whatsapp_interaction(
 
     normalized = normalize_phone(request.identifier)
     normalized_request = request.model_copy(update={"identifier": normalized})
+    if request.action in ACTIONS:
+        result = handle_chat_resume(normalized_request, web_session, channel_key, background, response)
+        if result is not None:
+            return result
+        normalized_request = normalized_request.model_copy(update={
+            "action": "continue_case", "idempotency_key": f"resume:{request.idempotency_key}",
+        })
     with SessionLocal() as session:
         try:
             with session.begin():
