@@ -98,7 +98,7 @@ IDs: cadenas cortas legibles (`P-0001`, `C-0001`, `evt_...`). Fechas en UTC ISO-
 
 **persons**: `id`, `full_name`, `birth_date`, `email`, `phone` (E.164, normalizado), `is_provisional` (bool; true hasta la primera verificación exitosa), `created_at`.
 
-**channel_identities**: `id`, `person_id`, `channel`, `identifier`, `identifier_type` (`session|phone|account`), `session_state` (JSON, estado conversacional), `last_seen_at`. Único (`channel`, `identifier`).
+**channel_identities**: `id`, `person_id` (nullable únicamente mientras la identidad de nivel 0 solo contiene un borrador), `channel`, `identifier`, `identifier_type` (`session|phone|account`), `session_state` (JSON, estado conversacional o borrador), `last_seen_at`. Único (`channel`, `identifier`). `person_id` se asigna al convertir el borrador en un trámite o al reconocer a la persona.
 
 **verifications**: `id`, `person_id`, `channel`, `identifier`, `method` (`email_otp|dob_check|account_login|agent_assisted`), `code_hash`, `status` (`pending|succeeded|failed|expired|locked`), `attempts`, `expires_at` (OTP: 5 min), `valid_until` (tras éxito: 30 min), `created_at`.
 
@@ -177,6 +177,20 @@ cotizando         en otro caso (con study elegido o no)
 ### 6.4 Cambio de canal
 Si llega actividad sobre un trámite por un canal distinto de `last_channel`: emitir `canal_cambiado` (payload: `from`, `to`), actualizar `last_channel` y `current_channel`.
 
+### 6.5 Borrador web y autoguardado
+- El formulario de preregistro web se guarda como borrador en `channel_identities.session_state`, ligado a la sesión web. Una identidad que solo contiene un borrador permanece en nivel 0 y tiene `person_id = null`.
+- La UI guarda al salir de un campo (`blur`) o después de aproximadamente 600 ms sin escribir. No envía una escritura por cada tecla.
+- El borrador admite información incompleta. Guardarlo no crea personas, trámites ni eventos.
+- Al enviar un preregistro completo, el borrador se convierte mediante el flujo normal en persona y trámite, se asigna `channel_identities.person_id` y se limpia el borrador.
+- `continue_case` devuelve el borrador vigente cuando todavía no existe un trámite, para rellenar el formulario y continuar donde se quedó el usuario.
+- El borrador tiene la misma vigencia que la confianza de origen web: 30 minutos desde `last_seen_at`. Un borrador vencido no se recupera ni se expone a otra sesión.
+
+### 6.6 Cancelación de trámite web
+- `cancel_case` sobre un trámite exige `expected_version`, cambia `status` a `cancelado`, incrementa `version`, limpia cualquier borrador de la sesión y emite `tramite_cancelado` en la misma transacción.
+- Se puede cancelar un trámite en cualquier estado, incluida una cita confirmada. El registro y su línea de tiempo se conservan.
+- Cancelar con una versión anterior devuelve 409 con la versión actual. Repetir la misma interacción idempotente no cambia de nuevo el trámite ni duplica `tramite_cancelado`.
+- Si la sesión solo tiene un borrador, `cancel_case` descarta el borrador sin crear evento.
+
 ---
 
 ## 7. Eventos (catálogo)
@@ -226,7 +240,7 @@ Solicitud (formato canónico):
 }
 ```
 - `kind`: `message | action | call_started | call_ended`.
-- `action` (cuando `kind=action`): `start_quote, start_booking, preregister, select_study, select_clinic, select_slot, confirm_case, cancel_case, continue_case, new_case, talk_to_agent`.
+- `action` (cuando `kind=action`): `start_quote, start_booking, save_draft, preregister, select_study, select_clinic, select_slot, confirm_case, cancel_case, continue_case, new_case, talk_to_agent`.
 
 Respuesta:
 ```json
@@ -241,6 +255,61 @@ Respuesta:
 }
 ```
 
+#### 8.3.1 Formatos definidos para Web en S1
+
+En S1, `POST /channels/web/interactions` usa `identifier_type = "session"`. Los datos específicos de cada acción se envían dentro de `data`:
+
+- `start_quote`: `{}`.
+- `continue_case`: `{}`.
+- `save_draft`: el mismo objeto de `data` que `preregister`, pero todos sus campos son opcionales y pueden estar incompletos.
+- `select_study` antes de crear un trámite: `{ "study_id": "ST-001" }`.
+- `select_study` sobre un trámite existente: `{ "case_id": "C-0001", "expected_version": 1, "study_id": "ST-001" }`.
+- `select_clinic`: `{ "case_id": "C-0001", "expected_version": 1, "clinic_id": "CL-001" }`.
+- `select_slot`: `{ "case_id": "C-0001", "expected_version": 2, "slot_id": "SL-..." }`.
+- `confirm_case`: `{ "case_id": "C-0001", "expected_version": 3 }`.
+- `cancel_case` sobre un trámite: `{ "case_id": "C-0001", "expected_version": 4 }`.
+- `cancel_case` cuando solo existe un borrador: `{}`.
+
+El cuerpo de `data` para `preregister` es:
+
+```json
+{
+  "requester": {
+    "full_name": "Ana Demo",
+    "birth_date": "1990-05-10",
+    "email": "ana.demo@example.com",
+    "phone": "+522221234567"
+  },
+  "relationship": "self",
+  "patient": null,
+  "study_id": "ST-001"
+}
+```
+
+- `requester.email` y `requester.phone` son obligatorios en el preregistro.
+- Si `relationship = "self"`, `patient` se omite o es `null` y el solicitante también es el paciente.
+- Si `relationship != "self"`, `patient` es obligatorio e incluye al menos `full_name` y `birth_date`; `email` y `phone` son opcionales.
+- `birth_date` acepta `YYYY-MM-DD`; también se admite `DD/MM/AAAA` en la entrada.
+
+Cuando `select_study` se usa como cotización pública, la respuesta canónica agrega `quote`:
+
+```json
+{
+  "quote": {
+    "id": "ST-001",
+    "name": "Biometría hemática",
+    "price": 180,
+    "preparation": "Ayuno ficticio de 8 horas."
+  }
+}
+```
+
+La confianza de origen de S1 se mantiene con una cookie HTTP-only llamada `web_session`. El backend la establece o renueva con `Max-Age=1800` y `SameSite=Lax`. El cliente web usa `credentials: "include"` y CORS permite credenciales únicamente desde el origen exacto configurado en `FRONTEND_ORIGIN`.
+
+`save_draft` devuelve la respuesta canónica con `case: null`, `events: []` y un campo adicional `draft` con el borrador guardado. No usa la tabla `events`; su idempotencia se conserva en `session_state`.
+
+Al cargar `/web`, el cliente envía `continue_case`. Si la cookie coincide con el `identifier`, sigue vigente y existe un trámite no cancelado, la respuesta incluye ese trámite y sus `missing_steps`; una cita confirmada también se recupera para permitir su cancelación. Si solo existe un borrador vigente, devuelve `case: null`, `draft` con los campos capturados, `trust_level: 0` y `reset_session: false`. Si falta la cookie o está vencida, la respuesta no expone el trámite ni el borrador anterior, devuelve `case: null`, `draft: null`, `trust_level: 0` y `reset_session: true`, y elimina la cookie. Una sesión válida sin trámite ni borrador devuelve `case: null`, `draft: null` y `reset_session: false`.
+
 ### 8.4 Identidad
 - `POST /identity/verify/request` `{channel, identifier, method, birth_date?}` → crea verificación (OTP al buzón simulado).
 - `POST /identity/verify/confirm` `{channel, identifier, code}` → `{trust_level, valid_until, access_token?}`.
@@ -250,6 +319,69 @@ Respuesta:
 - `PATCH /cases/{id}` `{expected_version, fields}` → actualiza pasos/campos (409 si hay conflicto).
 - `GET /me/cases` (paciente con JWT).
 - `GET /cases/{id}/timeline` → eventos del trámite en orden cronológico (paciente: versión simple; asesor: completa).
+
+En S1, la sesión web de origen obtiene esta forma de respuesta de `GET /cases/{id}`:
+
+```json
+{
+  "trust_level": 2,
+  "case": {
+    "id": "C-0001",
+    "relationship": "self",
+    "requester": {
+      "full_name": "Ana Demo",
+      "birth_date": "1990-05-10",
+      "email": "ana.demo@example.com",
+      "phone": "+522221234567"
+    },
+    "patient": {
+      "full_name": "Ana Demo",
+      "birth_date": "1990-05-10",
+      "email": "ana.demo@example.com",
+      "phone": "+522221234567"
+    },
+    "study_id": "ST-001",
+    "clinic_id": "CL-001",
+    "slot_id": null,
+    "slot_datetime": null,
+    "steps": {
+      "study": true,
+      "patient_data": true,
+      "clinic": true,
+      "slot": false,
+      "confirmed": false
+    },
+    "status": "clinica_elegida",
+    "abandoned": false,
+    "current_channel": "web",
+    "last_channel": "web",
+    "version": 2,
+    "created_at": "2026-11-24T16:00:00Z",
+    "updated_at": "2026-11-24T16:05:00Z"
+  },
+  "missing_steps": ["slot", "confirmed"]
+}
+```
+
+Los identificadores internos `requester_id` y `patient_id` no se exponen al frontend. La cookie `web_session` vigente es obligatoria para consultar el trámite.
+
+En S1, `GET /cases/{id}/timeline` devuelve:
+
+```json
+{
+  "events": [
+    {
+      "event_id": "evt_...",
+      "type": "clinica_seleccionada",
+      "channel": "web",
+      "timestamp": "2026-11-24T16:05:00Z",
+      "payload": { "clinic_id": "CL-001" }
+    }
+  ]
+}
+```
+
+Los eventos se ordenan por `seq` en orden cronológico. Esta vista simple no expone `person_id`, `actor_id`, `idempotency_key` ni datos internos usados para reconstruir una respuesta idempotente.
 
 ### 8.6 Asesor (rol `asesor`)
 - `GET /agent/lookup?phone=|email=` → coincidencias (solo nombre enmascarado y nivel 1).

@@ -6,3 +6,42 @@ body {
   @apply m-0 bg-slate-50 text-slate-900;
 }
 
+@layer components {
+  .button-primary {
+    @apply rounded-xl bg-cyan-700 px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-cyan-800 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .section-title {
+    @apply text-2xl font-bold text-slate-900;
+  }
+
+  .section-copy {
+    @apply mt-2 text-slate-600;
+  }
+
+  .option-card {
+    @apply flex cursor-pointer items-center gap-4 rounded-xl border border-slate-200 p-4 transition hover:border-cyan-400 hover:bg-cyan-50/40;
+  }
+
+  .option-card-selected {
+    @apply border-cyan-600 bg-cyan-50;
+  }
+
+  .option-button {
+    @apply rounded-xl border border-slate-200 p-4 text-left font-semibold transition hover:border-cyan-500 hover:bg-cyan-50 disabled:opacity-50;
+  }
+
+  .field {
+    @apply grid gap-2 text-sm font-semibold text-slate-700;
+  }
+
+  .field input,
+  .field select {
+    @apply rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal text-slate-900 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100;
+  }
+
+  .summary-label {
+    @apply mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500;
+  }
+}
+

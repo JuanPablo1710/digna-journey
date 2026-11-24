@@ -3,9 +3,13 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  envDir: "..",
   server: {
     proxy: {
       "/health": "http://localhost:8000",
+      "/catalog": "http://localhost:8000",
+      "/channels": "http://localhost:8000",
+      "/cases": "http://localhost:8000",
     },
   },
 });

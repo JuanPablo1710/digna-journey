@@ -1,6 +1,10 @@
 from datetime import datetime, time, timedelta, timezone
 from typing import TypedDict
 
+from fastapi import APIRouter, Query
+
+from .errors import APIError
+
 
 class Study(TypedDict):
     id: str
@@ -28,6 +32,8 @@ CLINICS: list[Clinic] = [
     {"id": "CL-003", "name": "Clínica Cholula (demo)"},
 ]
 
+router = APIRouter(prefix="/catalog", tags=["catalog"])
+
 
 def get_demo_slots(now: datetime | None = None) -> list[dict[str, str]]:
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -45,4 +51,21 @@ def get_demo_slots(now: datetime | None = None) -> list[dict[str, str]]:
                     }
                 )
     return slots
+
+
+@router.get("/studies")
+def list_studies() -> list[Study]:
+    return STUDIES
+
+
+@router.get("/clinics")
+def list_clinics() -> list[Clinic]:
+    return CLINICS
+
+
+@router.get("/slots")
+def list_slots(clinic_id: str = Query()) -> list[dict[str, str]]:
+    if not any(clinic["id"] == clinic_id for clinic in CLINICS):
+        raise APIError(404, "clinic_not_found", "La clínica solicitada no existe.")
+    return [slot for slot in get_demo_slots() if slot["clinic_id"] == clinic_id]
 

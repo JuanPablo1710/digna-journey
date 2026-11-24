@@ -28,7 +28,7 @@ class ChannelIdentity(Base):
     __table_args__ = (UniqueConstraint("channel", "identifier"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    person_id: Mapped[str] = mapped_column(ForeignKey("persons.id"), nullable=False)
+    person_id: Mapped[str | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     channel: Mapped[str] = mapped_column(String, nullable=False)
     identifier: Mapped[str] = mapped_column(String, nullable=False)
     identifier_type: Mapped[str] = mapped_column(String, nullable=False)
