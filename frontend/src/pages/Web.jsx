@@ -2,11 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   cancelWebCase,
+  confirmIdentityVerification,
   continueWebCase,
+  createNewWebCase,
   getCaseTimeline,
   getClinics,
   getSlots,
   getStudies,
+  requestIdentityVerification,
   saveWebDraft,
   sendWebInteraction,
 } from "../api";
@@ -70,9 +73,13 @@ export default function Web() {
   const [quote, setQuote] = useState(null);
   const [caseData, setCaseData] = useState(null);
   const [timeline, setTimeline] = useState([]);
+  const [previousCases, setPreviousCases] = useState([]);
   const [draftStatus, setDraftStatus] = useState("");
   const [hasDraft, setHasDraft] = useState(false);
   const [cancelledKind, setCancelledKind] = useState(null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [verificationInfo, setVerificationInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -88,6 +95,42 @@ export default function Web() {
   const draftTimerRef = useRef(null);
   const draftRequestRef = useRef(Promise.resolve());
 
+  async function displayCase(activeCase, studyItems = studies) {
+    if (activeCase.pending) {
+      setCaseData(null);
+      setPhase("verify_email");
+      return;
+    }
+    setCaseData(activeCase);
+    setStudyId(activeCase.study_id ?? "");
+    setQuote(studyItems.find((study) => study.id === activeCase.study_id) ?? null);
+    setForm((current) => ({
+      ...current,
+      fullName: activeCase.requester.full_name ?? "",
+      birthDate: activeCase.requester.birth_date ?? "",
+      email: activeCase.requester.email ?? "",
+      phone: activeCase.requester.phone ?? "",
+      forWhom: activeCase.relationship === "self" ? "self" : "other",
+      relationship: activeCase.relationship === "self" ? "hijo_a" : activeCase.relationship,
+      patientName: activeCase.relationship === "self" ? "" : activeCase.patient.full_name ?? "",
+      patientBirthDate: activeCase.relationship === "self" ? "" : activeCase.patient.birth_date ?? "",
+    }));
+    if (!activeCase.steps.study) {
+      setPhase("study");
+    } else if (!activeCase.steps.patient_data) {
+      setPhase("preregister");
+    } else if (!activeCase.steps.clinic) {
+      setPhase("clinic");
+    } else if (!activeCase.steps.slot) {
+      setSlots(await getSlots(activeCase.clinic_id));
+      setPhase("slot");
+    } else if (!activeCase.steps.confirmed) {
+      setPhase("confirm");
+    } else {
+      setPhase("done");
+    }
+  }
+
   useEffect(() => {
     async function initialize() {
       try {
@@ -98,6 +141,7 @@ export default function Web() {
         ]);
         setStudies(studyItems);
         setClinics(clinicItems);
+        setPreviousCases(resumed.previous_cases ?? []);
         if (resumed.draft) {
           const saved = resumed.draft;
           const savedRelationship = saved.relationship ?? "self";
@@ -121,36 +165,7 @@ export default function Web() {
         }
         if (!resumed.case) return;
 
-        const activeCase = resumed.case;
-        setCaseData(activeCase);
-        setStudyId(activeCase.study_id ?? "");
-        setQuote(studyItems.find((study) => study.id === activeCase.study_id) ?? null);
-        setForm((current) => ({
-          ...current,
-          fullName: activeCase.requester.full_name ?? "",
-          birthDate: activeCase.requester.birth_date ?? "",
-          email: activeCase.requester.email ?? "",
-          phone: activeCase.requester.phone ?? "",
-          forWhom: activeCase.relationship === "self" ? "self" : "other",
-          relationship: activeCase.relationship === "self" ? "hijo_a" : activeCase.relationship,
-          patientName: activeCase.relationship === "self" ? "" : activeCase.patient.full_name ?? "",
-          patientBirthDate: activeCase.relationship === "self" ? "" : activeCase.patient.birth_date ?? "",
-        }));
-
-        if (!activeCase.steps.study) {
-          setPhase("study");
-        } else if (!activeCase.steps.patient_data) {
-          setPhase("preregister");
-        } else if (!activeCase.steps.clinic) {
-          setPhase("clinic");
-        } else if (!activeCase.steps.slot) {
-          setSlots(await getSlots(activeCase.clinic_id));
-          setPhase("slot");
-        } else if (!activeCase.steps.confirmed) {
-          setPhase("confirm");
-        } else {
-          setPhase("done");
-        }
+        await displayCase(resumed.case, studyItems);
       } catch (reason) {
         setError(reason.message);
       } finally {
@@ -187,7 +202,7 @@ export default function Web() {
   }, [form, phase, studyId]);
 
   const currentStep = useMemo(
-    () => ({ start: 0, study: 0, preregister: 1, clinic: 2, slot: 3, confirm: 4, done: 4, cancelled: 4 })[phase] ?? 0,
+    () => ({ start: 0, verify_email: 0, verify_code: 0, study: 0, preregister: 1, clinic: 2, slot: 3, confirm: 4, done: 4, cancelled: 4 })[phase] ?? 0,
     [phase],
   );
 
@@ -212,6 +227,48 @@ export default function Web() {
       await sendWebInteraction("start_quote");
       setPhase("study");
     });
+  }
+
+  function openExistingCase() {
+    run(async () => {
+      await sendWebInteraction("start_quote");
+      setPhase("verify_email");
+    });
+  }
+
+  function sendLoginOtp(event) {
+    event.preventDefault();
+    run(async () => {
+      const result = await requestIdentityVerification("web", loginEmail, "email_otp");
+      setVerificationInfo(result);
+      setOtpCode("");
+      setPhase("verify_code");
+    });
+  }
+
+  function confirmLoginOtp(event) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    confirmIdentityVerification("web", loginEmail, otpCode)
+      .then(() => continueWebCase())
+      .then(async (resumed) => {
+        if (!resumed.case || resumed.case.pending) {
+          throw new Error("No encontramos un trámite activo para este correo.");
+        }
+        setPreviousCases(resumed.previous_cases ?? []);
+        await displayCase(resumed.case);
+      })
+      .catch((reason) => {
+        let message = reason.message;
+        if (reason.attempts_remaining !== undefined) {
+          message += ` Intentos restantes: ${reason.attempts_remaining}.`;
+        }
+        if (reason.error === "otp_expired") message = "El código expiró. Solicita uno nuevo.";
+        if (reason.error === "temporarily_locked") message = "La verificación está bloqueada temporalmente. Intenta más tarde.";
+        setError(message);
+      })
+      .finally(() => setLoading(false));
   }
 
   function selectStudy(event) {
@@ -349,6 +406,33 @@ export default function Web() {
     startQuote();
   }
 
+  function scheduleAnotherStudy() {
+    run(async () => {
+      const result = await createNewWebCase(caseData);
+      setPreviousCases(result.previous_cases ?? []);
+      setCaseData(result.case);
+      setTimeline([]);
+      setStudyId("");
+      setQuote(null);
+      setSlots([]);
+      setHasDraft(false);
+      setDraftStatus("");
+      setCancelledKind(null);
+      setForm((current) => ({
+        ...current,
+        fullName: result.case.requester.full_name ?? "",
+        birthDate: result.case.requester.birth_date ?? "",
+        email: result.case.requester.email ?? "",
+        phone: result.case.requester.phone ?? "",
+        forWhom: "self",
+        relationship: "hijo_a",
+        patientName: "",
+        patientBirthDate: "",
+      }));
+      setPhase("study");
+    });
+  }
+
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
@@ -369,7 +453,7 @@ export default function Web() {
 
         {(caseData || hasDraft) && phase !== "cancelled" && (
           <div className="mt-5 flex justify-end">
-            <button className="text-sm font-semibold text-red-700 underline-offset-4 hover:underline disabled:opacity-50" disabled={loading} onClick={cancelCurrent}>Cancelar trámite</button>
+            <button className="text-sm font-semibold text-red-700 underline-offset-4 hover:underline disabled:opacity-50" disabled={loading} onClick={cancelCurrent}>{phase === "done" ? "Cancelar cita" : "Cancelar trámite"}</button>
           </div>
         )}
 
@@ -378,14 +462,42 @@ export default function Web() {
             <div className="py-10 text-center">
               <h2 className="text-3xl font-bold">Tu salud, sin empezar de nuevo</h2>
               <p className="mx-auto mt-3 max-w-xl text-slate-600">Consulta precios ficticios y conserva el avance de tu trámite en esta sesión.</p>
-              <button className="button-primary mt-8" disabled={loading} onClick={startQuote}>Comenzar cotización</button>
+              <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+                <button className="button-primary" disabled={loading} onClick={startQuote}>Comenzar cotización</button>
+                <button className="rounded-xl border border-cyan-700 px-6 py-3 font-semibold text-cyan-800 hover:bg-cyan-50 disabled:opacity-50" disabled={loading} onClick={openExistingCase}>Ya tengo un trámite</button>
+              </div>
             </div>
+          )}
+
+          {phase === "verify_email" && (
+            <form className="mx-auto max-w-md" onSubmit={sendLoginOtp}>
+              <h2 className="section-title">Recupera tu trámite</h2>
+              <p className="section-copy">Enviaremos un código al correo registrado. En esta demo podrás consultarlo en el buzón simulado.</p>
+              <label className="field mt-6">Correo electrónico<input required type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} placeholder="luis.demo@example.com" /></label>
+              <button className="button-primary mt-6 w-full" disabled={loading}>Enviar código</button>
+            </form>
+          )}
+
+          {phase === "verify_code" && (
+            <form className="mx-auto max-w-md" onSubmit={confirmLoginOtp}>
+              <h2 className="section-title">Escribe el código</h2>
+              <p className="section-copy">Lo enviamos a {verificationInfo?.masked_email}. El código vence en cinco minutos.</p>
+              <label className="field mt-6">Código de 6 dígitos<input required inputMode="numeric" pattern="[0-9]{6}" maxLength="6" value={otpCode} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))} placeholder="123456" /></label>
+              <a className="mt-3 inline-block text-sm font-semibold text-cyan-700 hover:underline" href={`/mailbox?email=${encodeURIComponent(loginEmail)}`}>Abrir buzón simulado</a>
+              <button className="button-primary mt-6 w-full" disabled={loading || otpCode.length !== 6}>Verificar y continuar</button>
+              <button className="mt-3 w-full text-sm font-semibold text-slate-600 hover:underline" type="button" disabled={loading} onClick={() => setPhase("verify_email")}>Solicitar otro código</button>
+            </form>
           )}
 
           {phase === "study" && (
             <form onSubmit={selectStudy}>
               <h2 className="section-title">Elige un estudio</h2>
               <p className="section-copy">Los precios e indicaciones son únicamente para esta demostración.</p>
+              {caseData && (
+                <p className="mt-4 rounded-xl bg-cyan-50 p-4 text-sm text-cyan-950">
+                  Solicitante: <strong>{caseData.requester.full_name}</strong>. Tus datos ya están precargados.
+                </p>
+              )}
               <div className="mt-6 grid gap-3">
                 {studies.map((study) => (
                   <label key={study.id} className={`option-card ${studyId === study.id ? "option-card-selected" : ""}`}>
@@ -463,6 +575,7 @@ export default function Web() {
               <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-100 text-2xl text-emerald-700">✓</div>
               <h2 className="mt-4 text-2xl font-bold">Cita confirmada</h2>
               <p className="mt-2 text-slate-600">Tu folio ficticio es <strong>{caseData.id}</strong>.</p>
+              <button className="button-primary mt-6" disabled={loading} onClick={scheduleAnotherStudy}>Agendar otro estudio</button>
               <details className="mt-8 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-cyan-100 pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-slate-600">{event.type.replaceAll("_", " ")}</li>)}</ol></details>
             </div>
           )}
@@ -477,6 +590,20 @@ export default function Web() {
               )}
               <button className="button-primary mt-8" disabled={loading} onClick={startNewCase}>Empezar un trámite nuevo</button>
             </div>
+          )}
+
+          {previousCases.length > 0 && phase !== "start" && (
+            <aside className="mt-8 border-t border-slate-200 pt-6 text-left">
+              <h3 className="font-semibold text-slate-900">Trámites anteriores</h3>
+              <ul className="mt-3 space-y-2">
+                {previousCases.map((previousCase, index) => (
+                  <li key={`${previousCase.status}-${previousCase.study_id ?? "sin-estudio"}-${index}`} className="flex items-center justify-between gap-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
+                    <span>{studies.find((study) => study.id === previousCase.study_id)?.name ?? "Estudio por elegir"}</span>
+                    <span className="font-medium text-slate-600">{previousCase.status.replaceAll("_", " ")}</span>
+                  </li>
+                ))}
+              </ul>
+            </aside>
           )}
         </section>
       </div>

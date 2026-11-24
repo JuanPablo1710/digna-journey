@@ -48,8 +48,8 @@ def _iso(value: Any) -> Any:
 
 def _person_view(person: Person) -> dict[str, Any]:
     return {
-        "full_name": person.full_name,
-        "birth_date": person.birth_date.isoformat(),
+        "full_name": person.full_name or "Contacto sin registrar",
+        "birth_date": person.birth_date.isoformat() if person.birth_date else None,
         "email": person.email,
         "phone": person.phone,
     }

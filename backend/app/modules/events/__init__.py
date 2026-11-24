@@ -18,6 +18,7 @@ def append_event(
     person_id: str | None = None,
     payload: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
+    actor_role: str = "paciente",
 ) -> Event:
     event = Event(
         event_id=f"evt_{uuid4().hex[:12]}",
@@ -25,7 +26,7 @@ def append_event(
         case_id=case_id,
         person_id=person_id,
         channel=channel,
-        actor_role="paciente",
+        actor_role=actor_role,
         actor_id=actor_id,
         payload=payload or {},
         idempotency_key=idempotency_key,

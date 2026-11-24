@@ -15,6 +15,7 @@ from ...models import Case, ChannelIdentity, Event, Person
 from ...schemas import CaseActionData, DraftData, InteractionRequest, PreregisterData
 from ..cases import apply_step, case_view, derive_status, empty_steps, missing_steps
 from ..events import append_event, public_event_view
+from ..identity.service import ensure_complete_person, trust_level as identity_trust_level
 
 
 router = APIRouter(tags=["web"])
@@ -28,6 +29,7 @@ SUPPORTED_ACTIONS = {
     "select_slot",
     "confirm_case",
     "cancel_case",
+    "new_case",
 }
 SESSION_COOKIE = "web_session"
 SESSION_TTL = timedelta(minutes=30)
@@ -102,8 +104,8 @@ def _origin_identity(session: Session, identifier: str, case: Case) -> ChannelId
     identity = _identity(session, identifier)
     if identity is None or identity.person_id != case.requester_id:
         raise APIError(403, "access_denied", "Esta sesión no puede consultar ni modificar el trámite.")
-    if _utc_now() - _aware(identity.last_seen_at) > SESSION_TTL:
-        raise APIError(403, "session_expired", "La sesión de origen expiró.")
+    if identity_trust_level(session, channel="web", identifier=identifier, case=case) < 2:
+        raise APIError(403, "verification_required", "Necesitas verificar tu identidad para continuar.")
     identity.last_seen_at = _utc_now()
     return identity
 
@@ -179,9 +181,32 @@ def _active_case(session: Session, person_id: str | None) -> Case | None:
     return session.scalar(
         select(Case)
         .where(Case.requester_id == person_id, Case.status != "cancelado")
-        .order_by(Case.updated_at.desc())
+        .order_by(Case.created_at.desc())
         .limit(1)
     )
+
+
+def _visible_cases(session: Session, identity: ChannelIdentity) -> list[Case]:
+    if identity.person_id is None:
+        return []
+    cases = session.scalars(
+        select(Case)
+        .where(Case.requester_id == identity.person_id)
+        .order_by(Case.created_at.desc())
+    ).all()
+    return [
+        case
+        for case in cases
+        if identity_trust_level(session, channel="web", identifier=identity.identifier, case=case) >= 2
+    ]
+
+
+def _previous_cases(cases: list[Case], current: Case | None) -> list[dict[str, str | None]]:
+    return [
+        {"status": case.status, "study_id": case.study_id}
+        for case in cases
+        if current is None or case.id != current.id
+    ][:3]
 
 
 def _merge_draft(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
@@ -376,7 +401,8 @@ def _continue_case(
         )
 
     draft = _draft(identity)
-    case = _active_case(session, identity.person_id)
+    visible_cases = _visible_cases(session, identity)
+    case = next((item for item in visible_cases if item.status != "cancelado"), None)
     identity.last_seen_at = _utc_now()
     if case is None and draft is not None:
         return _response(
@@ -385,7 +411,7 @@ def _continue_case(
             event_types=[],
             message="Retomamos tu borrador donde lo dejaste.",
             trust_level=2 if identity.person_id else 0,
-            extra={"draft": draft, "reset_session": False},
+            extra={"draft": draft, "reset_session": False, "previous_cases": []},
         )
     if case is None and identity.person_id is None:
         return _response(
@@ -394,8 +420,30 @@ def _continue_case(
             event_types=[],
             message="No hay un trámite activo en esta sesión.",
             trust_level=0,
-            extra={"draft": None, "reset_session": False},
+            extra={"draft": None, "reset_session": False, "previous_cases": []},
         )
+
+    level = identity_trust_level(session, channel="web", identifier=request.identifier, case=case) if case else 1
+    if case is not None and level < 2:
+        append_event(
+            session,
+            event_type="acceso_denegado",
+            channel="web",
+            actor_id=request.identifier,
+            case_id=case.id,
+            person_id=identity.person_id,
+            payload={"reason": "verification_required"},
+        )
+        return {
+            "trust_level": level,
+            "case": {"id": case.id, "pending": True},
+            "missing_steps": [],
+            "messages": [{"text": "Verifica tu identidad para ver el trámite.", "quick_replies": []}],
+            "events": ["acceso_denegado"],
+            "draft": None,
+            "reset_session": False,
+            "previous_cases": [],
+        }
 
     duplicate = session.scalar(
         select(Event).where(
@@ -429,7 +477,11 @@ def _continue_case(
             else "No hay un trámite activo en esta sesión."
         ),
         trust_level=2,
-        extra={"draft": None, "reset_session": False},
+        extra={
+            "draft": None,
+            "reset_session": False,
+            "previous_cases": _previous_cases(visible_cases, case),
+        },
     )
     _store_idempotent_response(event, result)
     return result
@@ -444,6 +496,11 @@ def _create_person(data) -> Person:
         phone=_normalize_phone(data.phone),
         is_provisional=True,
     )
+
+
+def _ensure_case_people_complete(session: Session, case: Case) -> None:
+    ensure_complete_person(session.get(Person, case.requester_id))
+    ensure_complete_person(session.get(Person, case.patient_id))
 
 
 def _preregister(session: Session, request: InteractionRequest) -> dict[str, Any]:
@@ -488,6 +545,9 @@ def _preregister(session: Session, request: InteractionRequest) -> dict[str, Any
     else:
         patient = _create_person(data.patient)
         session.add(patient)
+
+    ensure_complete_person(requester)
+    ensure_complete_person(patient)
 
     steps = empty_steps()
     steps["patient_data"] = True
@@ -629,6 +689,61 @@ def _cancel_case(
     return result
 
 
+def _new_case(
+    session: Session,
+    request: InteractionRequest,
+) -> dict[str, Any]:
+    data = _parse(CaseActionData, request.data)
+    source_case = _load_case(session, data.case_id)
+    identity = _origin_identity(session, request.identifier, source_case)
+    _check_version(session, source_case, data.expected_version)
+    if source_case.status != "cita_confirmada":
+        raise APIError(422, "case_not_confirmed", "Solo puedes agendar otro estudio después de confirmar una cita.")
+
+    requester = session.get(Person, source_case.requester_id)
+    ensure_complete_person(requester)
+    steps = empty_steps()
+    steps["patient_data"] = True
+    new_case = Case(
+        id=_new_id("C"),
+        requester_id=requester.id,
+        patient_id=requester.id,
+        relationship="self",
+        steps=steps,
+        status=derive_status(steps),
+        abandoned=False,
+        current_channel="web",
+        last_channel="web",
+        version=1,
+    )
+    session.add(new_case)
+    session.flush()
+    event = append_event(
+        session,
+        event_type="tramite_creado",
+        channel="web",
+        actor_id=request.identifier,
+        case_id=new_case.id,
+        person_id=requester.id,
+        payload={"relationship": "self"},
+        idempotency_key=request.idempotency_key,
+    )
+    identity.last_seen_at = _utc_now()
+    _clear_draft(identity)
+    session.flush()
+    visible_cases = _visible_cases(session, identity)
+    result = _response(
+        session,
+        case=new_case,
+        event_types=[event.type],
+        message="Puedes elegir el estudio para tu nuevo trámite.",
+        trust_level=2,
+        extra={"draft": None, "previous_cases": _previous_cases(visible_cases, new_case)},
+    )
+    _store_idempotent_response(event, result)
+    return result
+
+
 def _case_action(session: Session, request: InteractionRequest) -> dict[str, Any]:
     data = _parse(CaseActionData, request.data)
     case = _load_case(session, data.case_id)
@@ -666,6 +781,7 @@ def _case_action(session: Session, request: InteractionRequest) -> dict[str, Any
         payload = {"slot_id": item["id"], "starts_at": item["starts_at"]}
         message = "Horario seleccionado."
     else:
+        _ensure_case_people_complete(session, case)
         if any(not case.steps.get(step, False) for step in ("study", "patient_data", "clinic", "slot")):
             raise APIError(422, "incomplete_case", "Completa los datos pendientes antes de confirmar la cita.")
         apply_step(case, "confirmed")
@@ -718,6 +834,8 @@ def process_interaction(
         return _preregister(session, request)
     if request.action == "cancel_case":
         return _cancel_case(session, request, cookie_identifier)
+    if request.action == "new_case":
+        return _new_case(session, request)
     return _case_action(session, request)
 
 
@@ -735,12 +853,28 @@ def web_interaction(
 ) -> dict[str, Any]:
     _verify_channel_key(channel_key)
     with SessionLocal() as session:
-        with session.begin():
-            existing_identity = _identity(session, request.identifier)
-            if request.action != "continue_case" and existing_identity is not None:
-                if web_session != request.identifier or not _identity_is_fresh(existing_identity):
-                    raise APIError(403, "session_expired", "La sesión de origen expiró.")
-            result = process_interaction(session, request, web_session)
+        try:
+            with session.begin():
+                existing_identity = _identity(session, request.identifier)
+                if request.action != "continue_case" and existing_identity is not None:
+                    if web_session != request.identifier or not _identity_is_fresh(existing_identity):
+                        raise APIError(403, "session_expired", "La sesión de origen expiró.")
+                result = process_interaction(session, request, web_session)
+        except APIError as exc:
+            if exc.status_code == 403:
+                case_id = request.data.get("case_id")
+                with session.begin():
+                    case = session.get(Case, case_id) if case_id else None
+                    append_event(
+                        session,
+                        event_type="acceso_denegado",
+                        channel="web",
+                        actor_id=request.identifier,
+                        case_id=case.id if case else None,
+                        person_id=case.requester_id if case else None,
+                        payload={"reason": exc.error},
+                    )
+            raise
     if request.action == "continue_case" and result.get("reset_session"):
         response.delete_cookie(SESSION_COOKIE, samesite="lax")
     else:
@@ -754,40 +888,66 @@ def web_interaction(
     return result
 
 
-def _authorized_case(session: Session, case_id: str, identifier: str | None) -> Case:
-    if not identifier:
-        raise APIError(403, "access_denied", "La sesión web de origen es obligatoria.")
-    case = _load_case(session, case_id)
-    _origin_identity(session, identifier, case)
-    return case
+def _denied_event(session: Session, case: Case, identifier: str | None, reason: str) -> None:
+    append_event(
+        session,
+        event_type="acceso_denegado",
+        channel="web",
+        actor_id=identifier or "anonymous",
+        case_id=case.id,
+        person_id=case.requester_id,
+        payload={"reason": reason},
+    )
 
 
 @router.get("/cases/{case_id}")
 def get_case(case_id: str, web_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     with SessionLocal() as session:
         with session.begin():
-            case = _authorized_case(session, case_id, web_session)
-            return {
-                "trust_level": 2,
-                "case": case_view(session, case),
-                "missing_steps": missing_steps(case.steps),
-            }
+            case = _load_case(session, case_id)
+            level = identity_trust_level(session, channel="web", identifier=web_session, case=case)
+            if level == 0:
+                _denied_event(session, case, web_session, "identity_not_linked")
+                result = None
+            elif level == 1:
+                result = {"trust_level": 1, "case": {"id": case.id, "pending": True}, "missing_steps": []}
+            else:
+                identity = _identity(session, web_session)
+                identity.last_seen_at = _utc_now()
+                result = {
+                    "trust_level": 2,
+                    "case": case_view(session, case),
+                    "missing_steps": missing_steps(case.steps),
+                }
+        if result is None:
+            raise APIError(403, "access_denied", "Esta sesión no puede consultar el trámite.")
+        return result
 
 
 @router.get("/cases/{case_id}/timeline")
 def get_timeline(case_id: str, web_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     with SessionLocal() as session:
         with session.begin():
-            case = _authorized_case(session, case_id, web_session)
-            events = session.scalars(
-                select(Event)
-                .where(
-                    or_(
-                        Event.case_id == case.id,
-                        (Event.case_id.is_(None) & (Event.actor_id == web_session) & (Event.channel == "web")),
+            case = _load_case(session, case_id)
+            level = identity_trust_level(session, channel="web", identifier=web_session, case=case)
+            if level < 2:
+                _denied_event(session, case, web_session, "verification_required")
+                result = None
+            else:
+                identity = _identity(session, web_session)
+                identity.last_seen_at = _utc_now()
+                events = session.scalars(
+                    select(Event)
+                    .where(
+                        or_(
+                            Event.case_id == case.id,
+                            (Event.case_id.is_(None) & (Event.actor_id == web_session) & (Event.channel == "web")),
+                        )
                     )
-                )
-                .order_by(Event.seq)
-            ).all()
-            return {"events": [public_event_view(event) for event in events]}
+                    .order_by(Event.seq)
+                ).all()
+                result = {"events": [public_event_view(event) for event in events]}
+        if result is None:
+            raise APIError(403, "verification_required", "Necesitas verificar tu identidad para ver la línea de tiempo.")
+        return result
 

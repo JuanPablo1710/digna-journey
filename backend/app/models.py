@@ -15,8 +15,8 @@ class Person(Base):
     __tablename__ = "persons"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    full_name: Mapped[str] = mapped_column(String, nullable=False)
-    birth_date: Mapped[date] = mapped_column(Date, nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     email: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     is_provisional: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -106,5 +106,16 @@ class Note(Base):
     case_id: Mapped[str] = mapped_column(ForeignKey("cases.id"), nullable=False)
     author_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class MailboxMessage(Base):
+    __tablename__ = "mailbox_messages"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    code: Mapped[str] = mapped_column(String(6), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 

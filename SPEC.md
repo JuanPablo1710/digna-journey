@@ -96,7 +96,7 @@
 
 IDs: cadenas cortas legibles (`P-0001`, `C-0001`, `evt_...`). Fechas en UTC ISO-8601.
 
-**persons**: `id`, `full_name`, `birth_date`, `email`, `phone` (E.164, normalizado), `is_provisional` (bool; true hasta la primera verificación exitosa), `created_at`.
+**persons**: `id`, `full_name` (nullable solo mientras `is_provisional = true`), `birth_date` (nullable solo mientras `is_provisional = true`), `email`, `phone` (E.164, normalizado), `is_provisional` (bool; true hasta la primera verificación exitosa), `created_at`. El servicio impide crear o confirmar un trámite y usar como paciente a una persona sin nombre o fecha de nacimiento. En vistas tolerantes a datos incompletos, un nombre nulo se representa como `Contacto sin registrar`.
 
 **channel_identities**: `id`, `person_id` (nullable únicamente mientras la identidad de nivel 0 solo contiene un borrador), `channel`, `identifier`, `identifier_type` (`session|phone|account`), `session_state` (JSON, estado conversacional o borrador), `last_seen_at`. Único (`channel`, `identifier`). `person_id` se asigna al convertir el borrador en un trámite o al reconocer a la persona.
 
@@ -109,6 +109,8 @@ IDs: cadenas cortas legibles (`P-0001`, `C-0001`, `evt_...`). Fechas en UTC ISO-
 **users** (acceso con credenciales o sesión): `id`, `username` (o email), `password_hash` (solo personal), `role` (`paciente|asesor|admin`), `person_id` (solo pacientes).
 
 **notes**: `id`, `case_id`, `author_user_id`, `text`, `created_at`.
+
+**mailbox_messages** (solo demo): `id`, `email`, `subject`, `body`, `code`, `created_at`. Guarda el contenido del correo simulado y el OTP en claro únicamente para `/demo/mailbox` cuando `DEMO_MODE=true`. `code` y `body` nunca se incluyen en eventos, logs ni respuestas normales de la API. `verifications.code_hash` sigue siendo la única copia del código usada para validar.
 
 ---
 
@@ -191,6 +193,12 @@ Si llega actividad sobre un trámite por un canal distinto de `last_channel`: em
 - Cancelar con una versión anterior devuelve 409 con la versión actual. Repetir la misma interacción idempotente no cambia de nuevo el trámite ni duplica `tramite_cancelado`.
 - Si la sesión solo tiene un borrador, `cancel_case` descarta el borrador sin crear evento.
 
+### 6.7 Nuevo trámite web después de confirmar
+- `new_case` exige el `case_id` y `expected_version` del trámite que se está mostrando. Solo se permite sobre una cita confirmada y con confianza de origen o verificación vigente.
+- Crea un trámite independiente para el mismo solicitante, inicialmente con `relationship = "self"`, el solicitante también como paciente y el paso `patient_data` completo. Los demás pasos comienzan vacíos y la UI regresa a la elección de estudio con los datos del solicitante precargados.
+- El trámite confirmado anterior no cambia de estado, versión ni línea de tiempo. El nuevo trámite inicia en versión 1 y emite `tramite_creado` en su propia línea de tiempo, en la misma transacción.
+- Cuando la sesión puede consultar más de un trámite, `continue_case` muestra el creado más recientemente y devuelve los anteriores en una lista breve que solo contiene estado y estudio.
+
 ---
 
 ## 7. Eventos (catálogo)
@@ -269,6 +277,7 @@ En S1, `POST /channels/web/interactions` usa `identifier_type = "session"`. Los 
 - `confirm_case`: `{ "case_id": "C-0001", "expected_version": 3 }`.
 - `cancel_case` sobre un trámite: `{ "case_id": "C-0001", "expected_version": 4 }`.
 - `cancel_case` cuando solo existe un borrador: `{}`.
+- `new_case`: `{ "case_id": "C-0001", "expected_version": 4 }`, donde el trámite indicado tiene una cita confirmada.
 
 El cuerpo de `data` para `preregister` es:
 
@@ -310,9 +319,44 @@ La confianza de origen de S1 se mantiene con una cookie HTTP-only llamada `web_s
 
 Al cargar `/web`, el cliente envía `continue_case`. Si la cookie coincide con el `identifier`, sigue vigente y existe un trámite no cancelado, la respuesta incluye ese trámite y sus `missing_steps`; una cita confirmada también se recupera para permitir su cancelación. Si solo existe un borrador vigente, devuelve `case: null`, `draft` con los campos capturados, `trust_level: 0` y `reset_session: false`. Si falta la cookie o está vencida, la respuesta no expone el trámite ni el borrador anterior, devuelve `case: null`, `draft: null`, `trust_level: 0` y `reset_session: true`, y elimina la cookie. Una sesión válida sin trámite ni borrador devuelve `case: null`, `draft: null` y `reset_session: false`.
 
+Cuando hay varios trámites visibles para esa sesión, tanto `continue_case` como `new_case` agregan `previous_cases`. El trámite más reciente va en `case`; la lista incluye como máximo los tres anteriores y cada elemento se limita a `{ "status": "cita_confirmada", "study_id": "ST-001" }`, sin datos personales ni identificadores internos.
+
 ### 8.4 Identidad
 - `POST /identity/verify/request` `{channel, identifier, method, birth_date?}` → crea verificación (OTP al buzón simulado).
 - `POST /identity/verify/confirm` `{channel, identifier, code}` → `{trust_level, valid_until, access_token?}`.
+
+Formatos de S2:
+
+- `channel`: `web | app | whatsapp | callcenter`.
+- `method`: `email_otp | dob_check`. `agent_assisted` existe en el servicio de identidad, pero su endpoint se agrega en S4.
+- Para `web` y `app`, `email_otp` usa el correo normalizado como `identifier`.
+- Para `whatsapp`, `dob_check` usa el teléfono normalizado como `identifier` y exige `birth_date`. Solo después de un `dob_check` exitoso se permite solicitar `email_otp` para ese teléfono; el código se envía al correo registrado, nunca al mismo teléfono.
+
+Respuesta de solicitud OTP:
+
+```json
+{
+  "status": "pending",
+  "trust_level": 1,
+  "masked_email": "a***@example.com",
+  "expires_at": "2026-11-24T16:05:00Z"
+}
+```
+
+Respuesta de `dob_check` exitoso:
+
+```json
+{
+  "status": "succeeded",
+  "trust_level": 1,
+  "next_method": "email_otp",
+  "masked_email": "a***@example.com"
+}
+```
+
+La confirmación incorrecta devuelve un error con `attempts_remaining`. Al tercer fallo devuelve estado `locked` y `locked_until`; después de diez minutos se puede solicitar un OTP nuevo. Un OTP vencido devuelve `otp_expired` y no sube el nivel de confianza.
+
+En web, la solicitud usa la cookie `web_session` existente. Al confirmar correctamente, el backend crea un nuevo identificador de sesión, vincula esa nueva identidad con la persona, crea una verificación vigente para el nuevo identificador, establece una nueva cookie `web_session`, devuelve el identificador nuevo en `session_identifier` para sincronizar el cliente y elimina la validez de la identidad anterior. La verificación solo permite acceder a trámites cuyo `requester_id` corresponde a esa persona. La persona provisional del navegador solo se fusiona si teléfono y correo coinciden exactamente.
 
 ### 8.5 Trámites
 - `GET /cases/{id}` → según rol y nivel de confianza (sección 10).
@@ -402,6 +446,25 @@ Los eventos se ordenan por `seq` en orden cronológico. Esta vista simple no exp
 - `POST /demo/reset` (borra y vuelve a cargar los datos semilla) y `POST /demo/seed`. Solo rol `admin` o `DEMO_MODE=true`.
 - `GET /demo/mailbox?email=` (correos simulados con OTP). `POST /demo/cases/{id}/abandon` (fuerza el estado abandonado para la demo).
 
+`GET /demo/mailbox?email=` solo está disponible con `DEMO_MODE=true`. Normaliza el correo y devuelve:
+
+```json
+{
+  "messages": [
+    {
+      "id": "mail_...",
+      "email": "ana.demo@example.com",
+      "subject": "Tu código de verificación (demo)",
+      "body": "Tu código de verificación es 123456.",
+      "code": "123456",
+      "created_at": "2026-11-24T16:00:00Z"
+    }
+  ]
+}
+```
+
+`POST /demo/reset` elimina también todos los registros de `mailbox_messages` antes de recargar el seed.
+
 ---
 
 ## 9. Motor conversacional (WhatsApp)
@@ -464,8 +527,9 @@ Catálogo ficticio: 5 estudios (con instrucciones de preparación ficticias), 3 
 
 Personas semilla (todas ficticias, correos `@example.com`):
 - **Ana Demo**: **no existe** al inicio (el demo la crea desde la web).
-- **Luis Demo**: trámite en `clinica_elegida`, marcado como abandonado.
-- **Marta Demo** y su hijo **Pablo Demo**: comparten el mismo teléfono (caso de ambigüedad).
+- **Luis Demo**: `luis.demo@example.com`, `+522221111111`, nacimiento `1985-04-12`; trámite en `clinica_elegida`, marcado como abandonado.
+- **Marta Demo**: `marta.demo@example.com`, `+522229999999`, nacimiento `1982-08-20`.
+- **Pablo Demo**: `pablo.demo@example.com`, `+522229999999`, nacimiento `2012-03-15`. Marta y Pablo comparten el teléfono para el caso de ambigüedad.
 - Algunos trámites en estados variados para poblar el tablero.
 
 Credenciales de prueba (documentar en README):

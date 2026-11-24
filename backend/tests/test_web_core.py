@@ -4,7 +4,7 @@ from itertools import count
 from sqlalchemy import func, select
 
 from app.db import SessionLocal
-from app.models import ChannelIdentity, Event, Person
+from app.models import Case, ChannelIdentity, Event, Person
 
 
 WEB_KEY = "demo-web-key"
@@ -528,4 +528,76 @@ def test_cancel_draft_discards_it_without_event(client):
     assert cancelled.json()["events"] == []
     assert resumed.json()["draft"] is None
     assert events_after == events_before
+
+
+def test_new_case_after_confirmation_preserves_original_and_timelines(client):
+    session_id = "another-study-session"
+    created = preregister(client, session_id=session_id, study_id="ST-003")
+    original = created["case"]
+    clinic = interaction(
+        client,
+        session_id,
+        "select_clinic",
+        {"case_id": original["id"], "expected_version": original["version"], "clinic_id": "CL-001"},
+    ).json()["case"]
+    slot = interaction(
+        client,
+        session_id,
+        "select_slot",
+        {"case_id": original["id"], "expected_version": clinic["version"], "slot_id": first_slot(client)["id"]},
+    ).json()["case"]
+    confirmed = interaction(
+        client,
+        session_id,
+        "confirm_case",
+        {"case_id": original["id"], "expected_version": slot["version"]},
+    ).json()["case"]
+    original_timeline_before = client.get(f"/cases/{original['id']}/timeline").json()["events"]
+
+    response = interaction(
+        client,
+        session_id,
+        "new_case",
+        {"case_id": original["id"], "expected_version": confirmed["version"]},
+        "new-case-once",
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    new_case = body["case"]
+    assert new_case["id"] != original["id"]
+    assert new_case["status"] == "datos_completos"
+    assert new_case["study_id"] is None
+    assert new_case["requester"] == confirmed["requester"]
+    assert body["previous_cases"] == [{"status": "cita_confirmada", "study_id": "ST-003"}]
+
+    with SessionLocal() as session:
+        stored_original = session.get(Case, original["id"])
+        stored_new = session.get(Case, new_case["id"])
+        assert stored_original.status == "cita_confirmada"
+        assert stored_original.version == confirmed["version"]
+        assert stored_new.requester_id == stored_original.requester_id
+
+    original_timeline_after = client.get(f"/cases/{original['id']}/timeline").json()["events"]
+    new_timeline = client.get(f"/cases/{new_case['id']}/timeline").json()["events"]
+    assert original_timeline_after == original_timeline_before
+    assert [event["type"] for event in new_timeline] == ["tramite_creado"]
+
+    duplicate = interaction(
+        client,
+        session_id,
+        "new_case",
+        {"case_id": original["id"], "expected_version": confirmed["version"]},
+        "new-case-once",
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json() == body
+    with SessionLocal() as session:
+        assert session.scalar(
+            select(func.count()).select_from(Event).where(Event.type == "tramite_creado", Event.case_id == new_case["id"])
+        ) == 1
+
+    resumed = interaction(client, session_id, "continue_case")
+    assert resumed.json()["case"]["id"] == new_case["id"]
+    assert resumed.json()["previous_cases"] == [{"status": "cita_confirmada", "study_id": "ST-003"}]
 

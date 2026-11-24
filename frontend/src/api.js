@@ -17,6 +17,10 @@ function resetWebSession() {
   return identifier;
 }
 
+function setWebSession(identifier) {
+  localStorage.setItem(WEB_SESSION_KEY, identifier);
+}
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     credentials: "include",
@@ -24,7 +28,9 @@ async function request(path, options = {}) {
   });
   const body = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(body?.message ?? "No fue posible completar la solicitud.");
+    const error = new Error(body?.message ?? "No fue posible completar la solicitud.");
+    if (body) Object.assign(error, body);
+    throw error;
   }
   return body;
 }
@@ -82,6 +88,42 @@ export async function cancelWebCase(caseData = null) {
     ? { case_id: caseData.id, expected_version: caseData.version }
     : {};
   return sendWebInteraction("cancel_case", data);
+}
+
+export async function createNewWebCase(caseData) {
+  return sendWebInteraction("new_case", {
+    case_id: caseData.id,
+    expected_version: caseData.version,
+  });
+}
+
+export async function requestIdentityVerification(channel, identifier, method, birthDate = null) {
+  return request("/identity/verify/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      channel,
+      identifier,
+      method,
+      ...(birthDate ? { birth_date: birthDate } : {}),
+    }),
+  });
+}
+
+export async function confirmIdentityVerification(channel, identifier, code) {
+  const result = await request("/identity/verify/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel, identifier, code }),
+  });
+  if (result.session_identifier) {
+    setWebSession(result.session_identifier);
+  }
+  return result;
+}
+
+export async function getMailbox(email) {
+  return request(`/demo/mailbox?email=${encodeURIComponent(email)}`);
 }
 
 export async function getCase(caseId) {

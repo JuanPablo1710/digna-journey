@@ -57,3 +57,23 @@ class CaseActionData(BaseModel):
     clinic_id: str | None = None
     slot_id: str | None = None
 
+
+class VerificationRequestData(BaseModel):
+    channel: Literal["web", "app", "whatsapp", "callcenter"]
+    identifier: str = Field(min_length=1)
+    method: Literal["email_otp", "dob_check"]
+    birth_date: date | None = None
+
+    @field_validator("birth_date", mode="before")
+    @classmethod
+    def parse_optional_birth_date(cls, value: Any) -> Any:
+        if isinstance(value, str) and "/" in value:
+            return datetime.strptime(value, "%d/%m/%Y").date()
+        return value
+
+
+class VerificationConfirmData(BaseModel):
+    channel: Literal["web", "app", "whatsapp", "callcenter"]
+    identifier: str = Field(min_length=1)
+    code: str = Field(pattern=r"^\d{6}$")
+
