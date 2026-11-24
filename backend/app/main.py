@@ -9,6 +9,7 @@ from .config import settings
 from .db import SessionLocal, create_tables
 from .errors import APIError
 from .modules.adapters.web import router as web_router
+from .modules.adapters.whatsapp import router as whatsapp_router
 from .modules.demo.router import router as demo_router
 from .modules.demo.seed import seed_demo
 from .modules.identity import router as identity_router
@@ -32,6 +33,7 @@ app.add_middleware(
 )
 app.include_router(catalog_router)
 app.include_router(web_router)
+app.include_router(whatsapp_router)
 app.include_router(identity_router)
 app.include_router(demo_router)
 

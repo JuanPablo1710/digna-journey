@@ -13,7 +13,7 @@ from ...db import SessionLocal
 from ...errors import APIError
 from ...models import Case, ChannelIdentity, Event, Person
 from ...schemas import CaseActionData, DraftData, InteractionRequest, PreregisterData
-from ..cases import apply_step, case_view, derive_status, empty_steps, missing_steps
+from ..cases import case_view, derive_status, empty_steps, missing_steps, update_case
 from ..events import append_event, public_event_view
 from ..identity.service import ensure_complete_person, trust_level as identity_trust_level
 
@@ -748,67 +748,27 @@ def _case_action(session: Session, request: InteractionRequest) -> dict[str, Any
     data = _parse(CaseActionData, request.data)
     case = _load_case(session, data.case_id)
     _origin_identity(session, request.identifier, case)
-    _check_version(session, case, data.expected_version)
-    if case.status == "cancelado":
-        raise APIError(422, "case_cancelled", "El trámite está cancelado y no puede modificarse.")
-
-    if request.action == "select_study":
-        item = _study(data.study_id)
-        case.study_id = item["id"]
-        apply_step(case, "study")
-        event_type = "estudio_seleccionado"
-        payload = {"study_id": item["id"]}
-        message = "Estudio seleccionado."
-    elif request.action == "select_clinic":
-        item = _clinic(data.clinic_id)
-        if case.slot_id:
-            selected_slot = _slot(case.slot_id)
-            if selected_slot["clinic_id"] != item["id"]:
-                raise APIError(422, "clinic_slot_mismatch", "La clínica no corresponde al horario elegido.")
-        case.clinic_id = item["id"]
-        apply_step(case, "clinic")
-        event_type = "clinica_seleccionada"
-        payload = {"clinic_id": item["id"]}
-        message = "Clínica seleccionada."
-    elif request.action == "select_slot":
-        item = _slot(data.slot_id)
-        if case.clinic_id and item["clinic_id"] != case.clinic_id:
-            raise APIError(422, "clinic_slot_mismatch", "El horario no corresponde a la clínica elegida.")
-        case.slot_id = item["id"]
-        case.slot_datetime = datetime.fromisoformat(item["starts_at"].replace("Z", "+00:00"))
-        apply_step(case, "slot")
-        event_type = "horario_propuesto"
-        payload = {"slot_id": item["id"], "starts_at": item["starts_at"]}
-        message = "Horario seleccionado."
-    else:
-        _ensure_case_people_complete(session, case)
-        if any(not case.steps.get(step, False) for step in ("study", "patient_data", "clinic", "slot")):
-            raise APIError(422, "incomplete_case", "Completa los datos pendientes antes de confirmar la cita.")
-        apply_step(case, "confirmed")
-        event_type = "cita_confirmada"
-        payload = {}
-        message = "Tu cita ficticia quedó confirmada."
-
-    case.version += 1
-    event = append_event(
+    events, message = update_case(
         session,
-        event_type=event_type,
+        case,
+        action=request.action,
+        expected_version=data.expected_version,
         channel="web",
         actor_id=request.identifier,
-        case_id=case.id,
-        person_id=case.requester_id,
-        payload=payload,
         idempotency_key=request.idempotency_key,
+        study_id=data.study_id,
+        clinic_id=data.clinic_id,
+        slot_id=data.slot_id,
     )
     session.flush()
     result = _response(
         session,
         case=case,
-        event_types=[event_type],
+        event_types=[event.type for event in events],
         message=message,
         trust_level=2,
     )
-    _store_idempotent_response(event, result)
+    _store_idempotent_response(events[-1], result)
     return result
 
 

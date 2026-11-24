@@ -1,6 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 const WEB_SESSION_KEY = "salud-digna-demo-web-session";
 const WEB_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_WEB ?? "demo-web-key";
+const WHATSAPP_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_WHATSAPP ?? "demo-whatsapp-key";
 
 function getWebSession() {
   let identifier = localStorage.getItem(WEB_SESSION_KEY);
@@ -132,5 +133,35 @@ export async function getCase(caseId) {
 
 export async function getCaseTimeline(caseId) {
   return request(`/cases/${encodeURIComponent(caseId)}/timeline`);
+}
+
+export async function sendWhatsAppInteraction({
+  phone,
+  content = null,
+  action = null,
+  data = {},
+  idempotencyKey = crypto.randomUUID(),
+}) {
+  return request("/channels/whatsapp/interactions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Channel-Key": WHATSAPP_CHANNEL_KEY,
+    },
+    body: JSON.stringify({
+      identifier: phone,
+      identifier_type: "phone",
+      idempotency_key: idempotencyKey,
+      kind: action ? "action" : "message",
+      action,
+      content,
+      data,
+      timestamp: new Date().toISOString(),
+    }),
+  });
+}
+
+export async function resetWhatsAppConversation(phone) {
+  return sendWhatsAppInteraction({ phone, action: "reset_conversation" });
 }
 

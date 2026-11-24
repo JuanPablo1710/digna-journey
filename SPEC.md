@@ -179,6 +179,8 @@ cotizando         en otro caso (con study elegido o no)
 ### 6.4 Cambio de canal
 Si llega actividad sobre un trámite por un canal distinto de `last_channel`: emitir `canal_cambiado` (payload: `from`, `to`), actualizar `last_channel` y `current_channel`.
 
+En WhatsApp, un número que era desconocido al iniciar la conversación obtiene confianza de origen durante 30 minutos desde su última actividad, exclusivamente sobre los trámites creados en esa misma conversación. Los identificadores de esos trámites se conservan en `channel_identities.session_state`; esta confianza nunca permite consultar trámites preexistentes ni vincula personas por correo o fecha de nacimiento. Al vencer, el número queda en nivel 1 y debe completar `dob_check` y `email_otp`. Un número que ya estaba ligado a una persona al comenzar nunca recibe esta confianza de origen.
+
 ### 6.5 Borrador web y autoguardado
 - El formulario de preregistro web se guarda como borrador en `channel_identities.session_state`, ligado a la sesión web. Una identidad que solo contiene un borrador permanece en nivel 0 y tiene `person_id = null`.
 - La UI guarda al salir de un campo (`blur`) o después de aproximadamente 600 ms sin escribir. No envía una escritura por cada tecla.
@@ -248,7 +250,7 @@ Solicitud (formato canónico):
 }
 ```
 - `kind`: `message | action | call_started | call_ended`.
-- `action` (cuando `kind=action`): `start_quote, start_booking, save_draft, preregister, select_study, select_clinic, select_slot, confirm_case, cancel_case, continue_case, new_case, talk_to_agent`.
+- `action` (cuando `kind=action`): `start_quote, start_booking, save_draft, preregister, select_study, select_clinic, select_slot, confirm_case, cancel_case, continue_case, new_case, talk_to_agent, answer, reset_conversation`.
 
 Respuesta:
 ```json
@@ -320,6 +322,22 @@ La confianza de origen de S1 se mantiene con una cookie HTTP-only llamada `web_s
 Al cargar `/web`, el cliente envía `continue_case`. Si la cookie coincide con el `identifier`, sigue vigente y existe un trámite no cancelado, la respuesta incluye ese trámite y sus `missing_steps`; una cita confirmada también se recupera para permitir su cancelación. Si solo existe un borrador vigente, devuelve `case: null`, `draft` con los campos capturados, `trust_level: 0` y `reset_session: false`. Si falta la cookie o está vencida, la respuesta no expone el trámite ni el borrador anterior, devuelve `case: null`, `draft: null`, `trust_level: 0` y `reset_session: true`, y elimina la cookie. Una sesión válida sin trámite ni borrador devuelve `case: null`, `draft: null` y `reset_session: false`.
 
 Cuando hay varios trámites visibles para esa sesión, tanto `continue_case` como `new_case` agregan `previous_cases`. El trámite más reciente va en `case`; la lista incluye como máximo los tres anteriores y cada elemento se limita a `{ "status": "cita_confirmada", "study_id": "ST-001" }`, sin datos personales ni identificadores internos.
+
+#### 8.3.2 Formatos definidos para WhatsApp en S3
+
+`POST /channels/whatsapp/interactions` usa `identifier_type = "phone"`; el adaptador normaliza el teléfono a E.164. Los mensajes de texto usan `kind = "message"`, `action = null` y el texto en `content`. Las respuestas rápidas usan `kind = "action"`, la acción indicada y estos formatos en `data`:
+
+- `start_quote`, `start_booking`, `continue_case`, `new_case`, `talk_to_agent`, `reset_conversation`: `{}`.
+- `select_study`: `{ "study_id": "ST-001", "case_id": "C-0001", "expected_version": 1 }`; `case_id` y `expected_version` se omiten durante una cotización pública.
+- `select_clinic`: `{ "clinic_id": "CL-001", "case_id": "C-0001", "expected_version": 2 }`.
+- `select_slot`: `{ "slot_id": "SL-...", "case_id": "C-0001", "expected_version": 3 }`.
+- `answer`: usa `data.value` para responder preguntas conversacionales, por ejemplo `{ "value": "self" }` o `{ "value": "hijo_a" }`.
+
+Cada respuesta conserva la forma canónica de la sección 8.3. Las respuestas rápidas se entregan dentro de `messages[].quick_replies` como `{label, action, payload}`. Con nivel 0 no se incluye información personal ni de trámites; con nivel 1, `case`, si existe, se limita a `{id, pending: true}`; con nivel 2 se usa la vista completa sin exponer `requester_id` ni `patient_id`.
+
+`reset_conversation` solo está disponible cuando `DEMO_MODE=true`. Limpia `channel_identities.session_state`, fija en el momento actual el `valid_until` de las verificaciones vigentes de ese canal e identificador, y devuelve el saludo inicial. No borra ni modifica personas, trámites o eventos existentes. Cuando `DEMO_MODE=false` responde `403 demo_mode_required`.
+
+Para un número desconocido, `start_booking` captura uno por uno los datos indicados en la sección 9. Al completar los datos crea el trámite y después ofrece estudio, clínica y horario mediante respuestas rápidas. No busca ni fusiona por correo o fecha de nacimiento. La confianza de origen descrita en la sección 6.4 se limita a los `case_id` creados por esa conversación.
 
 ### 8.4 Identidad
 - `POST /identity/verify/request` `{channel, identifier, method, birth_date?}` → crea verificación (OTP al buzón simulado).
@@ -482,6 +500,8 @@ Reglas simples y deterministas (sin IA obligatoria). El estado se guarda en `cha
 | Texto no entendido | "No te entendí. Elige una opción:" + respuestas rápidas. |
 
 Comprensión de texto: coincidencia por palabras clave (`hola`, `cotizar`, `agendar`, `continuar`, `asesor`, `cancelar`). Un resumen o interpretación con IA es **opcional** y debe estar detrás de la variable `AI_ENABLED` con respaldo por plantilla.
+
+En eventos `mensaje_recibido`, el contenido de una fecha de nacimiento o de un OTP nunca se almacena: el payload contiene solamente `type = "dob_enviada"` o `type = "otp_enviado"`. Los mensajes salientes nunca incluyen el código OTP; solo indican el correo enmascarado y enlazan al buzón simulado desde la interfaz de demo.
 
 ---
 

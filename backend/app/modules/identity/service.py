@@ -197,11 +197,18 @@ def trust_level(
         return 0
 
     now = utc_now()
+    methods_by_channel = {
+        "web": ("email_otp", "account_login"),
+        "app": ("email_otp", "account_login"),
+        "whatsapp": ("email_otp",),
+        "callcenter": ("email_otp", "agent_assisted"),
+    }
     valid_verification = session.scalar(
         select(Verification.id).where(
             Verification.person_id == identity.person_id,
             Verification.channel == channel,
             Verification.identifier == identifier,
+            Verification.method.in_(methods_by_channel.get(channel, ("email_otp",))),
             Verification.status == "succeeded",
             Verification.valid_until.is_not(None),
             Verification.valid_until > now,
@@ -220,6 +227,11 @@ def trust_level(
             )
         )
         if source_event is not None:
+            return 2
+    if channel == "whatsapp" and case is not None and now - aware(identity.last_seen_at) <= VERIFICATION_TTL:
+        state = identity.session_state or {}
+        origin_case_ids = state.get("origin_case_ids", [])
+        if state.get("started_unknown") is True and case.id in origin_case_ids:
             return 2
     return 1
 
