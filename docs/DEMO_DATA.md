@@ -37,4 +37,11 @@
 
 Catálogo de demo con 45 horarios del 2026-11-25 al 2026-11-27, de 09:00 a 13:00 hora de Ciudad de México por clínica.
 
+## Historial de ejemplo
+
+- C-1002, C-1005 y C-1006 incluyen mensajes de WhatsApp e intentos de verificación fallidos. C-1005 incluye un bloqueo histórico.
+- C-1007, C-1008 y C-1009 incluyen llamadas terminadas, consultas de contexto y notas internas ficticias.
+- C-1001, C-1003, C-1007 y C-1008 incluyen accesos denegados por verificación, sesión vencida o rol.
+- El historial se fecha en los días anteriores al reset. Los mensajes registran solo el tipo y las verificaciones históricas no habilitan acceso.
+
 Ana no está sembrada. Quedan libres `ana.demo@example.com` y `+522220000001`.

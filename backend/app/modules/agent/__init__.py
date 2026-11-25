@@ -9,18 +9,16 @@ from sqlalchemy import or_, select
 from ...db import SessionLocal, lock_demo_writes
 from ...errors import APIError
 from ...models import Case, Event, Note, Person, User, Verification
-from ...config import settings
 from ...security import mask_name
 from ..auth import require_agent
 from ..cases import case_view, missing_steps, update_case
 from ..events import append_event, public_event_view
-from ..identity.service import check_shared_dob, dob_counter, new_id, normalize_email, normalize_phone, utc_now
+from ..identity.service import check_shared_dob, new_id, normalize_email, normalize_phone, utc_now
 from .calls import active_call, call_event, owned_call
 
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 case_router = APIRouter(tags=["agent"])
-demo_router = APIRouter(prefix="/agent", tags=["agent"])
 
 
 @router.get("/lookup")
@@ -71,14 +69,23 @@ def _audit(session, agent, event_type, person_id, call_id=None, case_id=None, **
     )
 
 
-def _grant(session, agent, person_id):
+def _grant_query(session, agent):
     call = active_call(session, agent.id)
     identifier = call.payload["call_id"] if call else agent.id
-    return session.scalar(select(Verification).where(
-        Verification.person_id == person_id, Verification.channel == "callcenter",
+    return select(Verification).where(
+        Verification.channel == "callcenter",
         Verification.identifier == identifier, Verification.method == "agent_assisted",
         Verification.status == "succeeded", Verification.valid_until > utc_now(),
-    ).limit(1))
+    )
+
+
+def verified_requesters(session, agent):
+    query = _grant_query(session, agent).with_only_columns(Verification.person_id).distinct()
+    return set(session.scalars(query))
+
+
+def _grant(session, agent, person_id):
+    return session.scalar(_grant_query(session, agent).where(Verification.person_id == person_id).limit(1))
 
 
 def _require_grant(session, agent, person_id, grant, case_id=None):
@@ -225,15 +232,3 @@ def patch_case(case_id: str, data: PatchData, agent: User = Depends(require_agen
         case.version = data.expected_version + 1
         session.flush()
         return {"case": case_view(session, case), "missing_steps": missing_steps(case.steps), "events": events}
-
-
-@demo_router.post("/patients/{person_id}/unlock")
-def unlock(person_id: str, agent: User = Depends(require_agent)):
-    if not settings.demo_mode:
-        raise APIError(404, "not_found", "No encontramos este recurso.")
-    with SessionLocal.begin() as session:
-        lock_demo_writes(session)
-        counter = dob_counter(session, person_id)
-        if counter:
-            session.delete(counter)
-    return {"status": "ok"}

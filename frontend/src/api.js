@@ -118,16 +118,112 @@ export function getAgentContext(personId) {
   return staffRequest(`/agent/patients/${encodeURIComponent(personId)}/context`);
 }
 
-export function unlockAgentVerification(personId) {
-  return staffRequest(`/agent/patients/${encodeURIComponent(personId)}/unlock`, "POST");
-}
-
 export function patchAgentCase(item, fields) {
   return staffRequest(`/cases/${encodeURIComponent(item.id)}`, "PATCH", { expected_version: item.version, fields });
 }
 
 export function addAgentNote(caseId, text) {
   return staffRequest(`/agent/cases/${encodeURIComponent(caseId)}/notes`, "POST", { text });
+}
+
+export const getAdminDashboard = () => staffRequest("/admin/dashboard");
+export const getAdminAudit = () => staffRequest("/admin/audit");
+export function getAdminCases(status, channel) {
+  const query = new URLSearchParams();
+  if (status) query.set("status", status);
+  if (channel) query.set("channel", channel);
+  return staffRequest(`/admin/cases?${query}`);
+}
+export const resetAdminDemo = () => staffRequest("/demo/reset", "POST");
+export const seedAdminDemo = () => staffRequest("/demo/seed", "POST");
+
+export function openStaffStream({ caseId, cursor, onStatus, onConnect, onEvent, onError }) {
+  const controller = new AbortController();
+  const token = getStaffSession()?.access_token;
+  const query = caseId ? `?case_id=${encodeURIComponent(caseId)}` : "";
+  let delay = 500;
+  let retryTimer;
+  let current;
+
+  async function connect() {
+    if (controller.signal.aborted) return;
+    current = new AbortController();
+    const connection = current;
+    let reader;
+    let timeout;
+    let connectedAt;
+    const release = () => {
+      window.clearTimeout(timeout);
+      void reader?.cancel().catch(() => {});
+    };
+    connection.signal.addEventListener("abort", release, { once: true });
+    const watch = () => {
+      window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => connection.abort(), 25000);
+    };
+    try {
+      watch();
+      const headers = { Accept: "text/event-stream", Authorization: `Bearer ${token ?? ""}` };
+      if (cursor != null) headers["Last-Event-ID"] = String(cursor);
+      const response = await fetch(`${API_URL}/stream${query}`, { headers, signal: connection.signal });
+      if (controller.signal.aborted) return;
+      if (response.status === 401 || response.status === 403) {
+        const body = await response.json().catch(() => null);
+        onStatus("disconnected");
+        onError(Object.assign(new Error(body?.message ?? "La transmisión dejó de estar disponible."), body, { status: response.status }));
+        return;
+      }
+      if (!response.ok || !response.body) throw new Error("No se pudo conectar.");
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let pending = "";
+      connectedAt = Date.now();
+      onStatus("connected");
+      onConnect?.();
+      while (!controller.signal.aborted) {
+        const { value, done } = await reader.read();
+        if (done || controller.signal.aborted) break;
+        watch();
+        pending += decoder.decode(value, { stream: true });
+        const blocks = pending.split(/\r?\n\r?\n/);
+        pending = blocks.pop();
+        for (const block of blocks) {
+          if (controller.signal.aborted) break;
+          const lines = block.split(/\r?\n/);
+          const id = lines.find((line) => line.startsWith("id:"))?.slice(3).trim();
+          const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+          if (id == null) continue;
+          if (!data) {
+            if (cursor == null) cursor = Number(id);
+            continue;
+          }
+          if (Number(id) <= (cursor ?? 0)) continue;
+          const event = JSON.parse(data);
+          cursor = Number(id);
+          delay = 500;
+          onEvent(event, cursor);
+        }
+      }
+    } catch {
+      // Transport errors and interrupted connections use the same backoff.
+    } finally {
+      connection.abort();
+    }
+    if (!controller.signal.aborted) {
+      if (connectedAt && Date.now() - connectedAt > 5000) delay = 500;
+      onStatus("reconnecting");
+      retryTimer = window.setTimeout(connect, delay);
+      delay = Math.min(delay * 2, 15000);
+    }
+  }
+
+  onStatus("reconnecting");
+  void connect();
+  return () => {
+    controller.abort();
+    current?.abort();
+    window.clearTimeout(retryTimer);
+  };
 }
 
 export async function canSimulateNewDevice(signal) {

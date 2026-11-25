@@ -1,18 +1,28 @@
 from datetime import timezone
 
-from fastapi import APIRouter, Cookie, Query, Response
+from fastapi import APIRouter, Cookie, Depends, Query, Response
 from sqlalchemy import select
 
 from ...config import settings
-from ...db import SessionLocal
+from ...db import SessionLocal, lock_demo_writes
 from ...errors import APIError
 from ...models import ChannelIdentity, MailboxMessage
 from ..identity.service import new_id, normalize_email
+from ..auth import require_admin
 from .reset import reset_database
+from .seed import seed_demo
 
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 device_router = APIRouter(prefix="/demo", tags=["demo"])
+
+
+@device_router.post("/seed", dependencies=[Depends(require_admin)])
+def add_demo_seed() -> dict[str, str]:
+    with SessionLocal.begin() as session:
+        lock_demo_writes(session)
+        seed_demo(session)
+    return {"status": "ok"}
 
 
 @device_router.get("/new-device", status_code=204)

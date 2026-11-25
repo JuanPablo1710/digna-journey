@@ -7,3 +7,9 @@
 5. En Verificar identidad, escribe la fecha de nacimiento que registró Ana.
 6. En Atender, revisa el horario y la línea de tiempo, agrega una nota interna y confirma la cita.
 7. Pulsa Terminar llamada y comprueba que el contexto deja de estar disponible.
+
+## Tablero y auditoría
+
+- Tras el reset, abre `/admin` y filtra la bitácora por **Verificación fallida**, **Acceso denegado** o **Contexto consultado**.
+- El historial ficticio de C-1005 incluye un bloqueo temporal pasado. C-1007, C-1008 y C-1009 incluyen llamadas y consultas del asesor. El feed inicial contiene mensajes, cambios de canal y una cita confirmada.
+- Ana empieza sin persona, trámite ni historial. Al completar el recorrido anterior, sus nuevos eventos llegan al feed por SSE.

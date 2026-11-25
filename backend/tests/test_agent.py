@@ -1,11 +1,9 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.main import app, create_app
 from app.models import Case, Event, User
 from app.security import create_patient_token, hash_password
 from test_whatsapp import ana_web_case, latest_code, whatsapp
@@ -55,7 +53,7 @@ def test_rbac_matrix(client):
         assert client.post("/agent/cases/C-1001/notes", headers=headers, json={"text": "Nota"}).status_code == result
         assert client.patch("/cases/C-1001", headers=headers,
                             json={"expected_version": 1, "fields": {"confirmed": True}}).status_code == result
-    assert client.get("/admin/dashboard", headers=agent).status_code == 404
+    assert client.get("/admin/dashboard", headers=agent).status_code == 403
 
 
 def test_agent_access_requires_verification_and_audits(client):
@@ -72,6 +70,7 @@ def test_agent_access_requires_verification_and_audits(client):
     with SessionLocal() as session:
         denied, *_, consulted = session.scalars(select(Event).where(
             Event.type.in_(["acceso_denegado", "contexto_consultado"]),
+            ~Event.event_id.startswith("evt_seed_"),
         ).order_by(Event.seq)).all()
     assert denied.payload["reason"] == "verification_required"
     assert consulted.type == "contexto_consultado" and consulted.actor_role == "asesor"
@@ -87,7 +86,9 @@ def test_hidden_call_is_bound_only_after_verification_and_ends_grant(client):
     assert opened["trust_level"] == 0
     assert client.get("/agent/lookup?email=luis.demo@example.com", headers=auth).status_code == 200
     with SessionLocal() as session:
-        assert session.scalar(select(Event).where(Event.type == "identidad_vinculada")) is None
+        assert session.scalar(select(Event).where(
+            Event.type == "identidad_vinculada", Event.payload["call_id"].as_string() == call_id,
+        )) is None
     assert verify(client, auth, person).status_code == 422
     assert verify(client, other, person, call_id=call_id).status_code == 403
     assert call(client, other, "call_ended", call_id=call_id).status_code == 403
@@ -117,13 +118,6 @@ def test_shared_dob_attempts_between_agents_and_whatsapp(client):
     assert locked.status_code == 429 and locked.json()["retry_after_seconds"] > 0
     assert verify(client, auth, person).status_code == 429
     assert client.post("/identity/verify/request", json={**dob, "birth_date": "1985-04-12"}).status_code == 429
-    assert client.post(f"/agent/patients/{person}/unlock", headers=auth).status_code == 200
-    assert client.post("/identity/verify/request", json={**dob, "birth_date": "1985-04-12"}).status_code == 200
-
-
-def test_unlock_route_absent_when_demo_is_disabled():
-    production = TestClient(create_app(demo_mode=False))
-    assert production.post("/agent/patients/person/unlock").status_code == 404
 
 
 def test_ana_from_web_through_whatsapp_to_callcenter(client):

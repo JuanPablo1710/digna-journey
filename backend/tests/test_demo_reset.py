@@ -59,6 +59,8 @@ def test_reset_removes_ana_mailbox_drafts_and_lockouts(client):
             (Person.email == "ana.demo@example.com") | (Person.phone == "+522220000001"),
         )) is None
         assert session.get(Case, created.json()["case"]["id"]) is None
+        assert not [event for event in session.scalars(select(Event))
+                    if "ana-before-reset" in event.actor_id or "ana.demo@example.com" in str(event.payload)]
     assert client.post("/identity/verify/request", json=dob).json()["attempts_remaining"] == 2
 
 

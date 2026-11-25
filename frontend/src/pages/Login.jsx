@@ -8,7 +8,6 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [authenticated, setAuthenticated] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
@@ -18,7 +17,7 @@ export default function Login() {
       const session = await staffLogin(username, password);
       setPassword("");
       if (session.role === "asesor") navigate("/callcenter", { replace: true });
-      else setAuthenticated(true);
+      else navigate("/admin", { replace: true });
     } catch (reason) {
       setError(reason.message);
     } finally {
@@ -37,7 +36,6 @@ export default function Login() {
           <input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
         </label>
         {error && <p role="alert" className="text-red-700">{error}</p>}
-        {authenticated && <p role="status">Sesión de administrador iniciada.</p>}
         <button className="button-primary" disabled={loading}>{loading ? "Ingresando…" : "Iniciar sesión"}</button>
       </form>
     </main>

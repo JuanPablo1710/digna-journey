@@ -13,6 +13,8 @@ export default defineConfig({
       "/identity": "http://localhost:8000",
       "/auth": "http://localhost:8000",
       "/agent": "http://localhost:8000",
+      "^/admin/": "http://localhost:8000",
+      "/stream": "http://localhost:8000",
       "/demo": "http://localhost:8000",
       "/resume": "http://localhost:8000",
     },

@@ -473,19 +473,25 @@ El adaptador `POST /channels/callcenter/interactions` requiere Bearer de asesor 
 - La cuenta de fallos de fecha de nacimiento es común a WhatsApp y Call Center por solicitante identificado. Se guarda en `verifications` con `channel="shared"` y `method="dob_check"`. Un acierto reinicia los intentos. El tercer fallo bloquea por `LOCKOUT_MINUTES` (10 por defecto). Los fallos devuelven `attempts_remaining` y, durante el bloqueo, `retry_after_seconds`. Si un teléfono compartido sigue siendo ambiguo, el fallo no se atribuye a una persona arbitraria.
 - `GET /agent/patients/{person_id}/context` devuelve `{person_id, cases, timeline}`. Cada trámite incluye solicitante, paciente, pasos pendientes y notas internas. La línea de tiempo incluye tipo, canal, fecha, payload y datos de auditoría del actor de Call Center.
 - `POST /agent/cases/{id}/notes` devuelve 201 con la nota interna. `PATCH /cases/{id}` admite `fields.study_id`, `clinic_id`, `slot_id` y `confirmed: true`; devuelve `{case, missing_steps, events}`. Ambos requieren verificación vigente del solicitante. Los eventos de auditoría de llamada incluyen `call_id`; el texto de las notas se guarda solo en `notes`.
-- Solo con `DEMO_MODE=true`, `POST /agent/patients/{person_id}/unlock` con Bearer de asesor restablece los intentos. `POST /demo/reset` también limpia los contadores al recrear los datos.
+- `POST /demo/reset` limpia los contadores al recrear los datos.
 
 ### 8.7 Administrador (rol `admin`)
 - `GET /admin/dashboard` → totales por estado, abandonados, **recuperados entre canales** (trámites con ≥ 2 canales distintos que avanzaron tras `canal_cambiado`), recorrido de canales por trámite, últimos eventos (enmascarados).
 - `GET /admin/cases` (enmascarado), `GET /admin/audit` (`contexto_consultado`, `acceso_denegado`, `verificacion_*`).
 
+- `dashboard` devuelve `total_cases`, `totals_by_status`, `abandoned`, `recovered_across_channels`, `average_confirmation_seconds`, `funnel`, `journeys`, `recent_events` y `cursor`. El embudo cuenta el estado actual por etapa. El promedio va de creación a primera confirmación. Para recuperación, se reconstruye el progreso por los eventos del trámite en orden: debe haber dos canales distintos y un avance de etapa después de un `canal_cambiado`. Una cancelación, una consulta y la repetición de un paso no son avances.
+- `/admin/cases?status=&channel=` devuelve `{cases}`. El filtro de canal incluye cualquier canal del recorrido. Cada fila incluye folio (`id`), estado, abandono, IDs de estudio y clínica, `channels`, `updated_at`, y solicitante y paciente con `{name,phone,email}` enmascarados.
+- `/admin/audit` devuelve `{entries}` con tipo, canal, fecha, resumen, trámite, persona enmascarada y rol del actor. Solo se incluyen identificadores de actores de personal. Incluye `contexto_consultado`, `acceso_denegado`, `verificacion_solicitada`, `verificacion_exitosa` y `verificacion_fallida`. La interfaz permite filtrar estos resultados por tipo y muestra los motivos de acceso denegado reconocidos mediante etiquetas en español.
+
 ### 8.8 Tiempo real
-- `GET /stream?token=` (SSE). Mensajes `{type, case_id, channel, timestamp, summary}` con datos **enmascarados**. El asesor recibe además actualizaciones del trámite que tiene abierto.
+- `GET /stream` (SSE vía `fetch`) usa `Authorization: Bearer <access_token>`. El JWT no va en la URL. Sin credenciales válidas devuelve 401. El paciente queda fuera del stream.
+- Los mensajes llevan `id` con el cursor del evento y `data` con `{type,case_id,channel,timestamp,summary}` enmascarados. El cliente reanuda con `Last-Event-ID` y espera progresivamente entre reconexiones. La primera conexión sin cursor empieza en el último evento confirmado. Los eventos se leen desde otra sesión de base de datos después del commit.
+- El admin recibe todos los eventos. El asesor recibe eventos de trámites de solicitantes con verificación vigente. Puede indicar `case_id` para reducir el alcance a un trámite verificado. El flujo se corta si revocan la sesión o vence la verificación correspondiente, incluso al terminar la llamada.
 
 ### 8.9 Demo y salud
 - Con `DEMO_MODE=true`, `GET /demo/new-device` devuelve 204 e indica que se puede mostrar «Simular otro dispositivo». `POST /demo/new-device`, sin cuerpo, invalida en el servidor el identificador de la cookie `web_session`, borra la cookie y devuelve 204. El cliente limpia `localStorage` y `sessionStorage` del origen y recarga la página para reiniciar su estado en memoria. Se conservan personas, trámites, eventos, mensajes del buzón y la conversación asociada al número de WhatsApp. Con `DEMO_MODE=false` ambas rutas están ausentes (404).
 - `GET /health`.
-- `POST /demo/reset` (borra y vuelve a cargar los datos semilla) y `POST /demo/seed`. Solo rol `admin` o `DEMO_MODE=true`.
+- `POST /demo/reset` conserva el comportamiento de demo existente. `POST /demo/seed` solo se registra con `DEMO_MODE=true` y exige rol `admin`. Completa filas semilla ausentes por sus IDs fijos, sin reemplazar registros. Responde `{"status":"ok"}`.
 - `GET /demo/mailbox?email=` (correos simulados con OTP). `POST /demo/cases/{id}/abandon` (fuerza el estado abandonado para la demo).
 
 `GET /demo/mailbox?email=` solo está disponible con `DEMO_MODE=true`. Normaliza el correo y devuelve:
@@ -578,6 +584,7 @@ Personas semilla (todas ficticias, correos `@example.com`):
 - **Pablo Demo**: `pablo.demo@example.com`, `+522229999999`, nacimiento `2012-03-15`. Marta y Pablo comparten el teléfono para el caso de ambigüedad.
 - Marta tiene el trámite `C-1002` para Pablo, con parentesco `hijo_a` y estado `horario_propuesto`. Hay siete trámites adicionales con recorridos por uno, dos y tres canales. El folio de esta demo usa el ID de trámite existente, con valores de `C-1001` a `C-1009`.
 - Personas, trámites y eventos semilla tienen identificadores fijos. Las fechas de los eventos y horarios son relativas al día del reset en UTC. Los hashes bcrypt se regeneran con sales nuevas, lo que invalida los JWT anteriores sin cambiar las credenciales de demo.
+- C-1001 a C-1009 incluyen un historial ficticio de trámites, canales, identidad y auditoría. Los ejemplos de verificación y bloqueo son históricos y no crean autorizaciones ni bloqueos vigentes. Los mensajes guardan solo el tipo en su payload.
 
 Credenciales de prueba (documentar en README):
 - Asesor: `asesor` / `Asesor#2026`

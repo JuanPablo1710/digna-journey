@@ -43,3 +43,14 @@ def mask_phone(value: str | None) -> str:
         return "Teléfono sin registrar"
     return f"***{value[-4:]}"
 
+
+def masked_person(person) -> dict[str, str] | None:
+    """Allowlisted projection shared by dashboard, audit and SSE."""
+    if person is None:
+        return None
+    return {
+        "name": mask_name(person.full_name),
+        "phone": mask_phone(person.phone),
+        "email": mask_email(person.email),
+    }
+

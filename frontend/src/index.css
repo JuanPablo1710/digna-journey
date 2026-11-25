@@ -45,3 +45,11 @@ body {
   }
 }
 
+@keyframes admin-event-arrival {
+  from { background-color: #cffafe; }
+  to { background-color: transparent; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .admin-event-arrival { animation: admin-event-arrival 0.8s ease-out; }
+}

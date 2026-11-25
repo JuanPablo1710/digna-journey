@@ -1,16 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import demoGuide from "../../../DEMO.md?raw";
 import { formatMexicoDateTime, formatMexicoTime } from "../mexicoTime";
 import {
-  addAgentNote, callCenterInteraction, canSimulateNewDevice, getAgentContext, getClinics,
-  getSavedCall, getStaffSession, getStudies, lookupForAgent, patchAgentCase, staffLogout,
-  unlockAgentVerification, verifyForAgent,
+  addAgentNote, callCenterInteraction, getAgentContext, getClinics,
+  getSavedCall, getStaffSession, getStudies, lookupForAgent, openStaffStream, patchAgentCase, staffLogout,
+  verifyForAgent,
 } from "../api";
 
 const channels = { web: "Web", whatsapp: "WhatsApp", callcenter: "Call Center", app: "App" };
 const relationships = { hijo_a: "Hijo o hija", madre_padre: "Madre o padre", pareja: "Pareja", otro: "Otro parentesco" };
-const demoSteps = demoGuide.split(/\r?\n/).filter((line) => /^\d+\. /.test(line)).map((line) => line.replace(/^\d+\. /, ""));
 
 function duration(seconds) {
   const minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
@@ -54,8 +52,8 @@ export default function CallCenter() {
   const [verified, setVerified] = useState(null);
   const [context, setContext] = useState(null);
   const [catalog, setCatalog] = useState({ studies: [], clinics: [] });
-  const [demo, setDemo] = useState(false);
-  const [feedback, setFeedback] = useState("");
+  const [connection, setConnection] = useState("disconnected");
+  const liveStream = useRef(null);
 
   const allowed = getStaffSession()?.role === "asesor";
   const blockedSeconds = Math.max(0, Math.ceil((blockedUntil - now) / 1000));
@@ -75,7 +73,6 @@ export default function CallCenter() {
   useEffect(() => {
     if (!allowed) return;
     const controller = new AbortController();
-    canSimulateNewDevice(controller.signal).then(setDemo).catch(() => {});
     Promise.all([getStudies(), getClinics()]).then(([studies, clinics]) => {
       if (!controller.signal.aborted) setCatalog({ studies, clinics });
     }).catch((reason) => { if (!controller.signal.aborted) setError(reason.message); });
@@ -85,8 +82,9 @@ export default function CallCenter() {
   useEffect(() => {
     if (!verified) return;
     let active = true;
-    let timer;
-    async function poll() {
+    let refreshTimer;
+    async function refresh() {
+      refreshTimer = undefined;
       try {
         const result = await getAgentContext(verified);
         if (active) setContext(result);
@@ -97,15 +95,42 @@ export default function CallCenter() {
           if (reason.error === "verification_required") setVerified(null);
         }
       }
-      if (active) timer = window.setTimeout(poll, 5000);
     }
-    timer = window.setTimeout(poll, 5000);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [verified]);
+    function scheduleRefresh() {
+      if (active && !refreshTimer) refreshTimer = window.setTimeout(refresh, 180);
+    }
+    const stop = openStaffStream({
+      onStatus: setConnection,
+      // Refresh on connection to cover the gap after verification.
+      onConnect: scheduleRefresh,
+      onEvent: scheduleRefresh,
+      onError(reason) {
+        setContext(null);
+        setVerified(null);
+        showError(reason);
+      },
+    });
+    liveStream.current = stop;
+    const expiryTimer = window.setTimeout(() => {
+      stop();
+      setContext(null);
+      setVerified(null);
+      setConnection("disconnected");
+      setError("La verificación venció. Valida de nuevo al solicitante para continuar.");
+    }, validUntil ? Math.max(0, new Date(validUntil).getTime() - Date.now()) : 0);
+    return () => {
+      active = false;
+      window.clearTimeout(expiryTimer);
+      window.clearTimeout(refreshTimer);
+      stop();
+      liveStream.current = null;
+    };
+  }, [verified, validUntil]);
 
   if (!allowed) return <Navigate to="/login" replace />;
 
   function logout() {
+    liveStream.current?.();
     staffLogout();
     navigate("/login", { replace: true });
   }
@@ -129,7 +154,6 @@ export default function CallCenter() {
   async function run(task) {
     setLoading(true);
     setError("");
-    setFeedback("");
     try {
       await task();
     } catch (reason) {
@@ -163,6 +187,8 @@ export default function CallCenter() {
   function endCall() {
     run(async () => {
       await callCenterInteraction("call_ended", "", call.call_id);
+      liveStream.current?.();
+      setConnection("disconnected");
       setEndedCall({ ...call, endedAt: Date.now() });
       setCall(null);
       setIdentifying(false);
@@ -226,18 +252,16 @@ export default function CallCenter() {
       </p>
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Centro de contacto</h1>
+        {verified && <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold" role="status">
+          {connection === "connected" ? "Conectado" : connection === "disconnected" ? "Sin conexión" : "Reconectando..."}
+        </span>}
         <button type="button" disabled={loading} onClick={() => run(async () => {
           if (call) await callCenterInteraction("call_ended", "", call.call_id);
           logout();
         })} className="text-sm underline">Cerrar sesión</button>
       </header>
-      {demo && <details className="rounded-xl border border-slate-200 bg-white p-4">
-        <summary className="cursor-pointer font-semibold">Ayuda de la demo</summary>
-        <ol className="mt-3 list-decimal space-y-2 pl-6 text-sm">{demoSteps.map((step) => <li key={step}>{step}</li>)}</ol>
-      </details>}
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
       {loading && <p role="status">Procesando…</p>}
-      {feedback && <p role="status">{feedback}</p>}
       <Step number={1} title="Llamada" active={stage === 1}>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
           <p>Estado: <strong>{call ? "En llamada" : endedCall ? "Terminada" : "Sin llamada"}</strong></p>
@@ -302,14 +326,6 @@ export default function CallCenter() {
               <input required type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} disabled={blockedSeconds > 0} />
             </label>
             <button className="button-primary" disabled={loading || blockedSeconds > 0}>Verificar</button>
-            {demo && <button type="button" className="option-button" disabled={loading} onClick={() =>
-              run(async () => {
-                await unlockAgentVerification(selection.person_id);
-                setAttempts(3);
-                setBlockedUntil(null);
-                setFeedback("Se restablecieron los intentos.");
-              })
-            }>Desbloquear</button>}
           </form>
         </>}
       </Step>

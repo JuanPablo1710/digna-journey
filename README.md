@@ -1,6 +1,6 @@
 # Motor de contexto omnicanal
 
-Prototipo ficticio para Salud Digna. Incluye hasta S4: núcleo de trámites, Web, identidad con OTP, WhatsApp y consola de Call Center.
+Prototipo ficticio para Salud Digna. Incluye hasta S5: trámites, Web, identidad con OTP, WhatsApp, consola de Call Center y tablero de administración con SSE.
 
 ## Requisitos
 
@@ -57,6 +57,13 @@ Los endpoints públicos de catálogo y la documentación de la API están dispon
 
 ## Pruebas
 
+### Prueba manual del tablero y actualizaciones en vivo
+
+1. Abre `/login` e inicia sesión como `admin` con `Admin#2026`. En `/admin`, comprueba los totales, el embudo, los filtros y los recorridos.
+2. Abre otra pestaña independiente e inicia sesión como asesor. Verifica a un solicitante y confirma una cita o agrega una nota. Observa el evento en el tablero y comprueba que se muestra enmascarado. Las notas internas aparecen solo en el contexto del asesor.
+3. Interrumpe la conexión desde las herramientas de red del navegador. Comprueba **Reconectando...** y luego **Conectado** al volver a estar en línea.
+4. Filtra la bitácora por tipo para revisar verificaciones, accesos denegados y consultas de contexto. En modo demo puedes completar el seed o reiniciar la base. Tras el reset vuelve a iniciar sesión.
+
 ### Preparar una demo limpia
 
 Desde `backend`, con `DEMO_MODE=true`, ejecuta:
@@ -73,7 +80,7 @@ El comando reconstruye la base configurada en `DATABASE_URL` y genera `docs/DEMO
 2. En `/login`, entra como `asesor` con `Asesor#2026`. En `/callcenter`, ingresa el teléfono de Ana y pulsa **Llamada entrante**. Deja el número vacío para probar una llamada oculta y busca por correo.
 3. Selecciona la coincidencia enmascarada y verifica la fecha de nacimiento que registró Ana. Comprueba el solicitante, el paciente, el horario y la línea de tiempo. Agrega una nota interna y confirma la cita.
 4. Pulsa **Terminar llamada**. El contexto se cierra y la verificación de esa llamada queda vencida.
-5. En modo demo, prueba tres fechas incorrectas y usa **Desbloquear** para restablecer los intentos. `LOCKOUT_MINUTES` configura el bloqueo (10 minutos por defecto).
+5. Prueba tres fechas incorrectas y comprueba que se muestra el tiempo restante del bloqueo. `LOCKOUT_MINUTES` configura su duración (10 minutos por defecto).
 
 Para probar la retoma por correo, inicia un agendamiento en `/whatsapp` con un número desconocido y detente después de capturar un correo ficticio. En `/web`, elige **Ya tengo un trámite**, solicita el código y léelo en `/mailbox`. Verifica el código y selecciona el borrador. El formulario Web conserva lo capturado y el borrador deja de estar disponible en el número de origen. También puedes recuperar un trámite semilla con `luis.demo@example.com`.
 
