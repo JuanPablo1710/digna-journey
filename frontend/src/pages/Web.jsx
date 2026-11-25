@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import SimulateNewDevice from "../SimulateNewDevice";
 import ResumeByEmail from "../ResumeByEmail";
 import { formatMexicoDateTime as formatSlot } from "../mexicoTime";
+import useAbortableEffect from "../useAbortableEffect";
 
 import {
   cancelWebCase,
@@ -92,7 +93,7 @@ export default function Web() {
   const draftTimerRef = useRef(null);
   const draftRequestRef = useRef(Promise.resolve());
 
-  async function displayCase(activeCase, studyItems = studies) {
+  async function displayCase(activeCase, studyItems = studies, signal) {
     if (activeCase.pending) {
       setCaseData(null);
       setPhase("resume_email");
@@ -119,7 +120,9 @@ export default function Web() {
     } else if (!activeCase.steps.clinic) {
       setPhase("clinic");
     } else if (!activeCase.steps.slot) {
-      setSlots(await getSlots(activeCase.clinic_id));
+      const clinicSlots = await getSlots(activeCase.clinic_id, signal);
+      if (signal?.aborted) return;
+      setSlots(clinicSlots);
       setPhase("slot");
     } else if (!activeCase.steps.confirmed) {
       setPhase("confirm");
@@ -128,14 +131,15 @@ export default function Web() {
     }
   }
 
-  useEffect(() => {
+  useAbortableEffect((signal) => {
     async function initialize() {
       try {
         const [studyItems, clinicItems, resumed] = await Promise.all([
-          getStudies(),
-          getClinics(),
-          continueWebCase(),
+          getStudies(signal),
+          getClinics(signal),
+          continueWebCase(signal),
         ]);
+        if (signal.aborted) return;
         setStudies(studyItems);
         setClinics(clinicItems);
         setPreviousCases(resumed.previous_cases ?? []);
@@ -162,11 +166,11 @@ export default function Web() {
         }
         if (!resumed.case) return;
 
-        await displayCase(resumed.case, studyItems);
+        await displayCase(resumed.case, studyItems, signal);
       } catch (reason) {
-        setError(reason.message);
+        if (!signal.aborted) setError(reason.message);
       } finally {
-        setLoading(false);
+        if (!signal.aborted) setLoading(false);
       }
     }
 

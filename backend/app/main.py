@@ -9,6 +9,7 @@ from .config import settings
 from .db import SessionLocal, create_tables
 from .errors import APIError
 from .modules.adapters.web import router as web_router
+from .modules.adapters.app import router as app_router
 from .modules.adapters.callcenter import router as callcenter_router
 from .modules.adapters.whatsapp import router as whatsapp_router
 from .modules.admin import router as admin_router
@@ -51,7 +52,7 @@ def create_app(*, demo_mode: bool | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for router in (catalog_router, web_router, whatsapp_router, identity_router, auth_router, admin_router,
+    for router in (catalog_router, web_router, whatsapp_router, app_router, identity_router, auth_router, admin_router,
                    agent_router, agent_case_router, callcenter_router, resume_router, demo_router, stream_router):
         application.include_router(router)
     demo_enabled = settings.demo_mode if demo_mode is None else demo_mode

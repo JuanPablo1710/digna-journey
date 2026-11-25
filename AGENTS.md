@@ -15,7 +15,7 @@ Proyecto: motor de contexto omnicanal para Salud Digna (HackaTec 2026).
 
 ## Comandos
 
-- Backend: `cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload`
+- Backend: `cd backend && pip install -r requirements.txt && python -m app.dev`
 - Pruebas: `cd backend && pytest`
 - Frontend: `cd frontend && npm install && npm run dev`
 

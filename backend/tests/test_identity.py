@@ -78,6 +78,7 @@ def test_unknown_phone_and_email_expose_no_data_and_phone_is_reused(client):
 
     unknown_email = client.post(
         "/identity/verify/request",
+        headers={"X-Channel-Key": "demo-app-key"},
         json={"channel": "app", "identifier": "nadie@example.com", "method": "email_otp"},
     )
     assert unknown_email.status_code == 404

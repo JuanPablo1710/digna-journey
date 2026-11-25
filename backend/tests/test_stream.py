@@ -1,13 +1,18 @@
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
+import socket
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import timedelta
+from time import perf_counter
 from urllib.parse import urlencode
 
+import httpx
+import uvicorn
 from sqlalchemy import select
 
 from app.db import SessionLocal
+from app.dev import GRACEFUL_SHUTDOWN_SECONDS
 from app.main import app
 from app.models import Verification
 from app.modules.events import append_event
@@ -68,6 +73,55 @@ def test_stream_uses_bearer_only_and_redacts_access_log(client, caplog):
                                                  f"/stream?token={admin}", "1.1", 401)
     assert 'GET /stream HTTP/1.1' in caplog.text
     assert admin not in caplog.text
+
+
+def test_login_and_shutdown_with_24_open_streams(client):
+    login = {"username": "admin", "password": "Admin#2026"}
+    headers = token(client, login["username"], login["password"])
+
+    async def scenario():
+        server = uvicorn.Server(uvicorn.Config(
+            app, lifespan="off", ws="none", access_log=False, log_level="critical",
+            timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
+        ))
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+            serving = asyncio.create_task(server.serve(sockets=[listener]))
+            try:
+                async with asyncio.timeout(5):
+                    while not server.started:
+                        if serving.done():
+                            await serving
+                        await asyncio.sleep(0.01)
+                async with httpx.AsyncClient(
+                    base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=5,
+                ) as network, AsyncExitStack() as streams:
+                    async def subscribe():
+                        response = await streams.enter_async_context(network.stream("GET", "/stream", headers=headers))
+                        assert response.status_code == 200
+                        lines = response.aiter_lines()
+                        assert (await anext(lines)).startswith("id: ")
+                        return lines
+
+                    subscriptions = await asyncio.gather(*(subscribe() for _ in range(24)))
+                    await asyncio.sleep(POLL_SECONDS)
+                    assert len(server.server_state.tasks) == len(subscriptions)
+
+                    started = perf_counter()
+                    response = await network.post("/auth/login", json=login, timeout=1)
+                    elapsed = perf_counter() - started
+                    assert response.status_code == 200
+                    assert response.json()["role"] == "admin"
+                    assert elapsed < 1, f"Login tardó {elapsed:.3f} s con 24 streams abiertos"
+
+                    server.should_exit = True
+                    await asyncio.wait_for(asyncio.shield(serving), 4)
+            finally:
+                server.should_exit = True
+                await asyncio.wait_for(serving, 5)
+
+    asyncio.run(scenario())
 
 
 def test_sse_masks_committed_events_and_resumes_without_duplicates(client):

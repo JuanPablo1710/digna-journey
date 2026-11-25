@@ -233,7 +233,7 @@ Convenciones: JSON; errores `{ "error": "codigo", "message": "texto en español"
 ### 8.1 Autenticación
 - `POST /auth/login` `{username, password}` → `{access_token, role, person_id?}` (asesor y admin).
 - El JWT de personal dura ocho horas. Las rutas protegidas reciben `Authorization: Bearer <access_token>` y comprueban el rol en el servidor.
-- Pacientes: `POST /identity/verify/request` y `/confirm` con `channel="app"` o `"web"`; al confirmar devuelven JWT con rol `paciente` y `person_id`.
+- Pacientes: `POST /identity/verify/request` y `/confirm` con `channel="app"` o `"web"`; al confirmar devuelven un JWT con rol `paciente` y el ID de la persona en `sub`.
 
 ### 8.2 Catálogo (público, ficticio)
 - `GET /catalog/studies`, `GET /catalog/clinics`, `GET /catalog/slots?clinic_id=`.
@@ -353,6 +353,7 @@ Formatos de S2:
 - `channel`: `web | app | whatsapp | callcenter`.
 - `method`: `email_otp | dob_check`. `agent_assisted` existe en el servicio de identidad, pero su endpoint se agrega en S4.
 - Para `web` y `app`, `email_otp` usa el correo normalizado como `identifier`.
+- En App, ambos endpoints de OTP requieren `X-Channel-Key`. El correo debe identificar una sola persona. El JWT de App queda vinculado a esa verificación y el acceso vence a los 30 minutos. Un JWT de Web o WhatsApp no sustituye la verificación de App.
 - Para `whatsapp`, `dob_check` usa el teléfono normalizado como `identifier` y exige `birth_date`. Solo después de un `dob_check` exitoso se permite solicitar `email_otp` para ese teléfono; el código se envía al correo registrado, nunca al mismo teléfono.
 
 Respuesta de solicitud OTP:
@@ -384,8 +385,10 @@ En web, la solicitud usa la cookie `web_session` existente. Al confirmar correct
 ### 8.5 Trámites
 - `GET /cases/{id}` → según rol y nivel de confianza (sección 10).
 - `PATCH /cases/{id}` `{expected_version, fields}` → actualiza pasos/campos (409 si hay conflicto).
-- `GET /me/cases` (paciente con JWT).
+- `GET /me/cases` (JWT de paciente emitido por App y `X-Channel-Key` vigente) → `{cases}`. Cada fila incluye `id` (folio), `study_id`, `clinic_id`, `status`, `steps`, `slot_datetime`, `last_channel`, `version`, `relationship` y `patient_name` cuando el trámite es para otra persona. Se listan únicamente los trámites del solicitante autenticado.
 - `GET /cases/{id}/timeline` → eventos del trámite en orden cronológico (paciente: versión simple; asesor: completa).
+
+`POST /channels/app/interactions` recibe el mismo Bearer y la clave de App. Usa `kind="action"`, `action="continue_case"`, correo verificado con `identifier_type="account"` y `data={case_id,expected_version}`. Abrir un trámite registra `canal_cambiado` cuando el último canal difiere e incrementa la versión. Un reintento con la misma clave no repite el cambio. Devuelve la vista canónica con un `timeline` simple, sin eventos de notas internas ni de auditoría.
 
 En S1, la sesión web de origen obtiene esta forma de respuesta de `GET /cases/{id}`:
 
@@ -565,7 +568,7 @@ Una app React; **cada ruta es un cliente independiente que solo usa `src/api.js`
 | `/web` | Sitio web | Cotizador (estudio → precio demo) → agendar → formulario de preregistro (nombre, fecha de nacimiento, correo, teléfono, ¿para quién?) → clínica → horario → confirmar. La sesión del navegador es el identificador. Se puede cerrar a mitad. |
 | `/whatsapp` | WhatsApp | Marco de teléfono con burbujas y respuestas rápidas. Campo para elegir el **número de teléfono simulado**. Envía interacciones y pinta las respuestas. Enlace al buzón. |
 | `/callcenter` | Centro de contacto | Login de asesor. "Softphone": ingresar número y **simular llamada entrante** → búsqueda; botón de verificación asistida; panel con contexto, línea de tiempo y acciones (confirmar, agregar nota). Se actualiza en vivo. |
-| `/app` | App móvil | Marco de teléfono. Login por correo + OTP. Muestra "Mis trámites", progreso y cita confirmada. Opcional: reagendar. |
+| `/app` | App móvil | Marco de teléfono. Login por correo + OTP. Muestra "Mis trámites", progreso, cita confirmada y línea de tiempo. Identifica paciente y parentesco en citas de terceros. |
 | `/admin` | Tablero | Login de admin. KPIs, tabla de trámites enmascarada con el recorrido de canales, feed de eventos en vivo, bitácora de auditoría, botones de reset/seed. |
 | `/mailbox` | Correo simulado | Bandeja pública de demo con los OTP enviados. |
 

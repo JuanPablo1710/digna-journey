@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { getMailbox } from "../api";
+import useAbortableEffect from "../useAbortableEffect";
 
 
 export default function Mailbox() {
@@ -11,25 +12,28 @@ export default function Mailbox() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadMailbox(targetEmail = email) {
+  async function loadMailbox(targetEmail = email, signal) {
     if (!targetEmail) return;
     setLoading(true);
     setError("");
     try {
-      const result = await getMailbox(targetEmail);
+      const result = await getMailbox(targetEmail, signal);
+      if (signal?.aborted) return;
       setMessages(result.messages);
-      setSearchParams({ email: targetEmail });
+      if (targetEmail !== searchParams.get("email")) setSearchParams({ email: targetEmail });
     } catch (reason) {
-      setError(reason.message);
-      setMessages([]);
+      if (!signal?.aborted) {
+        setError(reason.message);
+        setMessages([]);
+      }
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }
 
-  useEffect(() => {
+  useAbortableEffect((signal) => {
     const initialEmail = searchParams.get("email");
-    if (initialEmail) loadMailbox(initialEmail);
+    if (initialEmail) loadMailbox(initialEmail, signal);
   }, []);
 
   return (

@@ -3,6 +3,8 @@ const WEB_SESSION_KEY = "salud-digna-demo-web-session";
 const WEB_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_WEB ?? "demo-web-key";
 const WHATSAPP_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_WHATSAPP ?? "demo-whatsapp-key";
 const CALLCENTER_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_CALLCENTER ?? "demo-callcenter-key";
+const APP_CHANNEL_KEY = import.meta.env.VITE_CHANNEL_KEY_APP ?? "demo-app-key";
+const APP_SESSION_KEY = "salud-digna-app-session";
 
 function getWebSession() {
   let identifier = localStorage.getItem(WEB_SESSION_KEY);
@@ -77,9 +79,10 @@ export function lookupForAgent(field, value) {
   return staffRequest(`/agent/lookup?${query}`);
 }
 
-function staffRequest(path, method = "GET", data, headers = {}) {
+function staffRequest(path, method = "GET", data, headers = {}, signal) {
   return request(path, {
     method,
+    signal,
     headers: {
       Authorization: `Bearer ${getStaffSession()?.access_token ?? ""}`,
       ...(data === undefined ? {} : { "Content-Type": "application/json" }),
@@ -114,8 +117,8 @@ export function verifyForAgent(personId, birthDate, callId) {
   });
 }
 
-export function getAgentContext(personId) {
-  return staffRequest(`/agent/patients/${encodeURIComponent(personId)}/context`);
+export function getAgentContext(personId, signal) {
+  return staffRequest(`/agent/patients/${encodeURIComponent(personId)}/context`, "GET", undefined, {}, signal);
 }
 
 export function patchAgentCase(item, fields) {
@@ -126,27 +129,72 @@ export function addAgentNote(caseId, text) {
   return staffRequest(`/agent/cases/${encodeURIComponent(caseId)}/notes`, "POST", { text });
 }
 
-export const getAdminDashboard = () => staffRequest("/admin/dashboard");
-export const getAdminAudit = () => staffRequest("/admin/audit");
-export function getAdminCases(status, channel) {
+export const getAdminDashboard = (signal) => staffRequest("/admin/dashboard", "GET", undefined, {}, signal);
+export const getAdminAudit = (signal) => staffRequest("/admin/audit", "GET", undefined, {}, signal);
+export function getAdminCases(status, channel, signal) {
   const query = new URLSearchParams();
   if (status) query.set("status", status);
   if (channel) query.set("channel", channel);
-  return staffRequest(`/admin/cases?${query}`);
+  return staffRequest(`/admin/cases?${query}`, "GET", undefined, {}, signal);
 }
 export const resetAdminDemo = () => staffRequest("/demo/reset", "POST");
 export const seedAdminDemo = () => staffRequest("/demo/seed", "POST");
 
 export function openStaffStream({ caseId, cursor, onStatus, onConnect, onEvent, onError }) {
-  const controller = new AbortController();
+  const page = typeof document === "undefined" ? null : document;
   const token = getStaffSession()?.access_token;
   const query = caseId ? `?case_id=${encodeURIComponent(caseId)}` : "";
   let delay = 500;
   let retryTimer;
   let current;
+  let pageHidden = false;
+  let stopped = false;
+
+  const paused = () => pageHidden || page?.visibilityState === "hidden";
+
+  function scheduleReconnect() {
+    if (stopped || paused() || current || retryTimer !== undefined) return;
+    onStatus("reconnecting");
+    retryTimer = window.setTimeout(() => {
+      retryTimer = undefined;
+      void connect();
+    }, delay);
+    delay = Math.min(delay * 2, 15000);
+  }
+
+  function interrupt() {
+    window.clearTimeout(retryTimer);
+    retryTimer = undefined;
+    const connection = current;
+    current = undefined;
+    connection?.abort();
+  }
+
+  function visibilityChanged() {
+    if (paused()) interrupt();
+    else scheduleReconnect();
+  }
+
+  function onPageHide() {
+    pageHidden = true;
+    interrupt();
+  }
+
+  function onPageShow() {
+    pageHidden = false;
+    visibilityChanged();
+  }
+
+  function stop() {
+    stopped = true;
+    interrupt();
+    page?.removeEventListener("visibilitychange", visibilityChanged);
+    window.removeEventListener?.("pagehide", onPageHide);
+    window.removeEventListener?.("pageshow", onPageShow);
+  }
 
   async function connect() {
-    if (controller.signal.aborted) return;
+    if (stopped || paused() || current || retryTimer !== undefined) return;
     current = new AbortController();
     const connection = current;
     let reader;
@@ -166,11 +214,13 @@ export function openStaffStream({ caseId, cursor, onStatus, onConnect, onEvent, 
       const headers = { Accept: "text/event-stream", Authorization: `Bearer ${token ?? ""}` };
       if (cursor != null) headers["Last-Event-ID"] = String(cursor);
       const response = await fetch(`${API_URL}/stream${query}`, { headers, signal: connection.signal });
-      if (controller.signal.aborted) return;
+      if (connection.signal.aborted) return;
       if (response.status === 401 || response.status === 403) {
         const body = await response.json().catch(() => null);
+        if (connection.signal.aborted) return;
+        stop();
         onStatus("disconnected");
-        onError(Object.assign(new Error(body?.message ?? "La transmisión dejó de estar disponible."), body, { status: response.status }));
+        onError?.(Object.assign(new Error(body?.message ?? "La transmisión dejó de estar disponible."), body, { status: response.status }));
         return;
       }
       if (!response.ok || !response.body) throw new Error("No se pudo conectar.");
@@ -180,15 +230,15 @@ export function openStaffStream({ caseId, cursor, onStatus, onConnect, onEvent, 
       connectedAt = Date.now();
       onStatus("connected");
       onConnect?.();
-      while (!controller.signal.aborted) {
+      while (!connection.signal.aborted) {
         const { value, done } = await reader.read();
-        if (done || controller.signal.aborted) break;
+        if (done || connection.signal.aborted) break;
         watch();
         pending += decoder.decode(value, { stream: true });
         const blocks = pending.split(/\r?\n\r?\n/);
         pending = blocks.pop();
         for (const block of blocks) {
-          if (controller.signal.aborted) break;
+          if (connection.signal.aborted) break;
           const lines = block.split(/\r?\n/);
           const id = lines.find((line) => line.startsWith("id:"))?.slice(3).trim();
           const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
@@ -208,22 +258,20 @@ export function openStaffStream({ caseId, cursor, onStatus, onConnect, onEvent, 
       // Transport errors and interrupted connections use the same backoff.
     } finally {
       connection.abort();
-    }
-    if (!controller.signal.aborted) {
-      if (connectedAt && Date.now() - connectedAt > 5000) delay = 500;
-      onStatus("reconnecting");
-      retryTimer = window.setTimeout(connect, delay);
-      delay = Math.min(delay * 2, 15000);
+      if (current === connection) {
+        current = undefined;
+        if (connectedAt && Date.now() - connectedAt > 5000) delay = 500;
+        scheduleReconnect();
+      }
     }
   }
 
   onStatus("reconnecting");
-  void connect();
-  return () => {
-    controller.abort();
-    current?.abort();
-    window.clearTimeout(retryTimer);
-  };
+  page?.addEventListener("visibilitychange", visibilityChanged);
+  window.addEventListener?.("pagehide", onPageHide);
+  window.addEventListener?.("pageshow", onPageShow);
+  queueMicrotask(() => void connect());
+  return stop;
 }
 
 export async function canSimulateNewDevice(signal) {
@@ -270,21 +318,22 @@ export async function simulateNewDevice() {
   window.location.reload();
 }
 
-export async function getStudies() {
-  return request("/catalog/studies");
+export async function getStudies(signal) {
+  return request("/catalog/studies", { signal });
 }
 
-export async function getClinics() {
-  return request("/catalog/clinics");
+export async function getClinics(signal) {
+  return request("/catalog/clinics", { signal });
 }
 
-export async function getSlots(clinicId) {
-  return request(`/catalog/slots?clinic_id=${encodeURIComponent(clinicId)}`);
+export async function getSlots(clinicId, signal) {
+  return request(`/catalog/slots?clinic_id=${encodeURIComponent(clinicId)}`, { signal });
 }
 
-export async function sendWebInteraction(action, data = {}, idempotencyKey = crypto.randomUUID()) {
+export async function sendWebInteraction(action, data = {}, idempotencyKey = crypto.randomUUID(), signal) {
   return request("/channels/web/interactions", {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-Channel-Key": WEB_CHANNEL_KEY,
@@ -302,9 +351,9 @@ export async function sendWebInteraction(action, data = {}, idempotencyKey = cry
   });
 }
 
-export async function continueWebCase() {
-  const result = await sendWebInteraction("continue_case");
-  if (result.reset_session) {
+export async function continueWebCase(signal) {
+  const result = await sendWebInteraction("continue_case", undefined, undefined, signal);
+  if (result.reset_session && !signal?.aborted) {
     resetWebSession();
   }
   return result;
@@ -331,7 +380,7 @@ export async function createNewWebCase(caseData) {
 export async function requestIdentityVerification(channel, identifier, method, birthDate = null) {
   return request("/identity/verify/request", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(channel === "app" ? { "X-Channel-Key": APP_CHANNEL_KEY } : {}) },
     body: JSON.stringify({
       channel,
       identifier,
@@ -344,7 +393,7 @@ export async function requestIdentityVerification(channel, identifier, method, b
 export async function confirmIdentityVerification(channel, identifier, code) {
   const result = await request("/identity/verify/confirm", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(channel === "app" ? { "X-Channel-Key": APP_CHANNEL_KEY } : {}) },
     body: JSON.stringify({ channel, identifier, code }),
   });
   if (result.session_identifier) {
@@ -353,8 +402,50 @@ export async function confirmIdentityVerification(channel, identifier, code) {
   return result;
 }
 
-export async function getMailbox(email) {
-  return request(`/demo/mailbox?email=${encodeURIComponent(email)}`);
+export const requestAppCode = (email) => requestIdentityVerification("app", email, "email_otp");
+
+export async function loginApp(email, code) {
+  const { access_token, valid_until } = await confirmIdentityVerification("app", email, code);
+  const session = { access_token, valid_until, email: email.trim().toLowerCase() };
+  sessionStorage.setItem(APP_SESSION_KEY, JSON.stringify(session));
+  return session;
+}
+
+export function getAppSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(APP_SESSION_KEY));
+    return saved && new Date(saved.valid_until).getTime() > Date.now() ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+export function logoutApp() {
+  sessionStorage.removeItem(APP_SESSION_KEY);
+}
+
+function appHeaders(session) {
+  return { Authorization: `Bearer ${session.access_token}`, "X-Channel-Key": APP_CHANNEL_KEY };
+}
+
+export function listAppCases(session, signal) {
+  return request("/me/cases", { headers: appHeaders(session), signal });
+}
+
+export function openAppCase(session, item) {
+  return request("/channels/app/interactions", {
+    method: "POST",
+    headers: { ...appHeaders(session), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: session.email, identifier_type: "account", kind: "action", action: "continue_case",
+      idempotency_key: crypto.randomUUID(), timestamp: new Date().toISOString(),
+      data: { case_id: item.id, expected_version: item.version },
+    }),
+  });
+}
+
+export async function getMailbox(email, signal) {
+  return request(`/demo/mailbox?email=${encodeURIComponent(email)}`, { signal });
 }
 
 export async function getCase(caseId) {

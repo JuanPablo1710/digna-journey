@@ -1,29 +1,32 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import "./index.css";
-import Admin from "./pages/Admin";
-import AppPage from "./pages/App";
-import CallCenter from "./pages/CallCenter";
-import Login from "./pages/Login";
-import Mailbox from "./pages/Mailbox";
-import Web from "./pages/Web";
-import WhatsApp from "./pages/WhatsApp";
+
+const Admin = lazy(() => import("./pages/Admin"));
+const AppPage = lazy(() => import("./pages/App"));
+const CallCenter = lazy(() => import("./pages/CallCenter"));
+const Login = lazy(() => import("./pages/Login"));
+const Mailbox = lazy(() => import("./pages/Mailbox"));
+const Web = lazy(() => import("./pages/Web"));
+const WhatsApp = lazy(() => import("./pages/WhatsApp"));
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
-      <Routes>
-        <Route path="/web" element={<Web />} />
-        <Route path="/whatsapp" element={<WhatsApp />} />
-        <Route path="/callcenter" element={<CallCenter />} />
-        <Route path="/app" element={<AppPage />} />
-        <Route path="/admin" element={<Admin />} />
-        <Route path="/mailbox" element={<Mailbox />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/web" replace />} />
-      </Routes>
+      <Suspense fallback={<p className="p-5" role="status">Cargando…</p>}>
+        <Routes>
+          <Route path="/web" element={<Web />} />
+          <Route path="/whatsapp" element={<WhatsApp />} />
+          <Route path="/callcenter" element={<CallCenter />} />
+          <Route path="/app" element={<AppPage />} />
+          <Route path="/admin" element={<Admin />} />
+          <Route path="/mailbox" element={<Mailbox />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="*" element={<Navigate to="/web" replace />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   </React.StrictMode>,
 );

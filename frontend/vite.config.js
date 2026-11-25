@@ -10,6 +10,7 @@ export default defineConfig({
       "/catalog": "http://localhost:8000",
       "/channels": "http://localhost:8000",
       "/cases": "http://localhost:8000",
+      "/me": "http://localhost:8000",
       "/identity": "http://localhost:8000",
       "/auth": "http://localhost:8000",
       "/agent": "http://localhost:8000",

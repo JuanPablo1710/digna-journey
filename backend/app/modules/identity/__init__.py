@@ -1,7 +1,8 @@
 
-from fastapi import APIRouter, Cookie, Response
+from fastapi import APIRouter, Cookie, Header, Response
 from sqlalchemy import select
 
+from ...config import settings
 from ...db import SessionLocal, lock_demo_writes
 from ...errors import APIError
 from ...schemas import VerificationConfirmData, VerificationRequestData
@@ -11,6 +12,11 @@ from .service import _identity, confirm_verification, request_verification
 
 router = APIRouter(prefix="/identity", tags=["identity"])
 SESSION_COOKIE = "web_session"
+
+
+def _require_app_key(channel, key):
+    if channel == "app" and key != settings.channel_key_app:
+        raise APIError(403, "invalid_channel_key", "La clave del canal no es válida.")
 
 
 def _reject_invalidated_session(session, channel, identifier):
@@ -37,7 +43,9 @@ def _raise_service_error(result: dict) -> None:
 def request_identity_verification(
     data: VerificationRequestData,
     web_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    channel_key: str | None = Header(default=None, alias="X-Channel-Key"),
 ):
+    _require_app_key(data.channel, channel_key)
     if data.channel == "web" and not web_session:
         raise APIError(403, "web_session_required", "Inicia una sesión web antes de verificar el correo.")
     with SessionLocal() as session:
@@ -60,9 +68,13 @@ def confirm_identity_verification(
     data: VerificationConfirmData,
     response: Response,
     web_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    channel_key: str | None = Header(default=None, alias="X-Channel-Key"),
 ):
+    _require_app_key(data.channel, channel_key)
     with SessionLocal() as session:
         with session.begin():
+            if data.channel == "app":
+                lock_demo_writes(session)
             _reject_invalidated_session(session, data.channel, web_session)
             result = confirm_verification(
                 session,

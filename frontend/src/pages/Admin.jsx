@@ -5,6 +5,7 @@ import {
   openStaffStream, resetAdminDemo, seedAdminDemo, staffLogout,
 } from "../api";
 import { formatMexicoDateTime } from "../mexicoTime";
+import useAbortableEffect from "../useAbortableEffect";
 
 const states = {
   cotizando: "Cotizando", datos_completos: "Datos completos", clinica_elegida: "Clínica elegida",
@@ -22,6 +23,11 @@ const auditTypes = {
   verificacion_solicitada: "Verificación solicitada", verificacion_exitosa: "Verificación exitosa",
   verificacion_fallida: "Verificación fallida",
 };
+const caseUpdates = new Set([
+  "tramite_creado", "estudio_seleccionado", "datos_paciente_capturados", "clinica_seleccionada",
+  "horario_propuesto", "cita_confirmada", "tramite_cancelado", "tramite_abandonado",
+  "tramite_reanudado", "canal_iniciado", "canal_cambiado",
+]);
 
 function Channel({ value }) {
   const [label, color] = channels[value] ?? ["Sin canal", "bg-gray-100 text-gray-700"];
@@ -60,11 +66,13 @@ export default function Admin() {
   const [channelFilter, setChannelFilter] = useState("");
   const [connection, setConnection] = useState("reconnecting");
   const [revision, setRevision] = useState(0);
+  const [auditRevision, setAuditRevision] = useState(0);
   const [demo, setDemo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const activeStream = useRef(null);
+  const journeyEnds = useRef(new Map());
 
   function logout() {
     activeStream.current?.();
@@ -77,50 +85,61 @@ export default function Admin() {
     else setError(reason.message);
   }
 
-  useEffect(() => {
+  useAbortableEffect((signal) => {
     if (!authorized) return;
-    let active = true;
-    const controller = new AbortController();
-    canSimulateNewDevice(controller.signal).then((visible) => { if (active) setDemo(visible); }).catch(() => {});
-    return () => { active = false; controller.abort(); };
+    canSimulateNewDevice(signal).then((visible) => { if (!signal.aborted) setDemo(visible); }).catch(() => {});
   }, [authorized]);
 
-  useEffect(() => {
+  useAbortableEffect((signal) => {
     if (!authorized) return;
-    let active = true;
-    Promise.all([getAdminDashboard(), getAdminAudit()]).then(([metrics, log]) => {
-      if (!active) return;
+    getAdminDashboard(signal).then((metrics) => {
+      if (signal.aborted) return;
       setDashboard(metrics);
-      setAudit(log.entries);
       if (streamCursor == null) {
+        journeyEnds.current = new Map(Object.entries(metrics.journeys).map(([id, route]) => [id, route.at(-1)]));
         setFeed(metrics.recent_events);
         setStreamCursor(metrics.cursor);
       }
-    }).catch((reason) => { if (active) handleError(reason); });
-    return () => { active = false; };
+    }).catch((reason) => { if (!signal.aborted) handleError(reason); });
   }, [authorized, revision]);
 
-  useEffect(() => {
+  useAbortableEffect((signal) => {
     if (!authorized) return;
-    let active = true;
-    getAdminCases(statusFilter, channelFilter).then((data) => {
-      if (active) setCases(data.cases);
-    }).catch((reason) => { if (active) handleError(reason); });
-    return () => { active = false; };
+    getAdminAudit(signal).then((data) => {
+      if (!signal.aborted) setAudit(data.entries);
+    }).catch((reason) => { if (!signal.aborted) handleError(reason); });
+  }, [authorized, auditRevision]);
+
+  useAbortableEffect((signal) => {
+    if (!authorized) return;
+    getAdminCases(statusFilter, channelFilter, signal).then((data) => {
+      if (!signal.aborted) setCases(data.cases);
+    }).catch((reason) => { if (!signal.aborted) handleError(reason); });
   }, [authorized, statusFilter, channelFilter, revision]);
 
   useEffect(() => {
     if (!authorized || streamCursor == null) return;
     let refresh;
+    let refreshCases = false;
+    let refreshAudit = false;
     const stop = openStaffStream({
       cursor: streamCursor,
       onStatus: setConnection,
       onError: handleError,
       onEvent(event, cursor) {
         setFeed((previous) => [{ ...event, cursor, live: true }, ...previous].slice(0, 20));
-        if (!refresh) refresh = window.setTimeout(() => {
+        if (event.case_id && event.type !== "acceso_denegado") {
+          const channelChanged = Object.hasOwn(channels, event.channel) && journeyEnds.current.get(event.case_id) !== event.channel;
+          if (channelChanged) journeyEnds.current.set(event.case_id, event.channel);
+          refreshCases ||= channelChanged || caseUpdates.has(event.type);
+        }
+        refreshAudit ||= Object.hasOwn(auditTypes, event.type);
+        if ((refreshCases || refreshAudit) && refresh === undefined) refresh = window.setTimeout(() => {
           refresh = undefined;
-          setRevision((value) => value + 1);
+          if (refreshCases) setRevision((value) => value + 1);
+          if (refreshAudit) setAuditRevision((value) => value + 1);
+          refreshCases = false;
+          refreshAudit = false;
         }, 300);
       },
     });
@@ -183,6 +202,7 @@ export default function Admin() {
         <button className="option-button bg-white" disabled={busy} onClick={() => run(async () => {
           await seedAdminDemo();
           setRevision((value) => value + 1);
+          setAuditRevision((value) => value + 1);
         }, "Datos de demo comprobados.")}>Cargar datos faltantes</button>
         <button className="option-button bg-white text-red-800" disabled={busy} onClick={reset}>Reiniciar demo</button>
       </section>}

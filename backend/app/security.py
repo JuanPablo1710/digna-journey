@@ -13,10 +13,13 @@ def verify_hash(value: str, value_hash: str) -> bool:
     return bcrypt.checkpw(value.encode("utf-8"), value_hash.encode("utf-8"))
 
 
-def create_patient_token(person_id: str) -> str:
+def create_patient_token(person_id: str, *, app_verification_id: str | None = None) -> str:
     now = datetime.now(timezone.utc)
+    claims = {"sub": person_id, "role": "paciente", "iat": now, "exp": now + timedelta(hours=8)}
+    if app_verification_id:
+        claims.update({"channel": "app", "verification_id": app_verification_id})
     return jwt.encode(
-        {"sub": person_id, "role": "paciente", "iat": now, "exp": now + timedelta(hours=8)},
+        claims,
         settings.jwt_secret,
         algorithm="HS256",
     )

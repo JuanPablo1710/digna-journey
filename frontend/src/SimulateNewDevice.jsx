@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { canSimulateNewDevice, simulateNewDevice } from "./api";
+import useAbortableEffect from "./useAbortableEffect";
 
 export default function SimulateNewDevice({ disabled }) {
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const controller = new AbortController();
-    canSimulateNewDevice(controller.signal).then(setAvailable).catch(() => {});
-    return () => controller.abort();
+  useAbortableEffect((signal) => {
+    canSimulateNewDevice(signal).then((value) => {
+      if (!signal.aborted) setAvailable(value);
+    }).catch(() => {});
   }, []);
 
   async function reset() {

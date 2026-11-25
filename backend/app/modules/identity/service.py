@@ -277,12 +277,12 @@ def trust_level(
     return 1
 
 
-def _person_for_email(session: Session, email: str) -> Person | None:
+def _person_for_email(session: Session, email: str, *, unique: bool = False) -> Person | None:
     matches = session.scalars(select(Person).where(Person.email == email)).all()
     if not matches:
         return None
     phones = {person.phone for person in matches if person.phone}
-    if len(phones) > 1:
+    if len(phones) > 1 or (unique and len(matches) > 1):
         raise APIError(409, "ambiguous", "El identificador coincide con más de una persona.")
     return sorted(matches, key=lambda person: (person.is_provisional, person.id))[0]
 
@@ -391,7 +391,7 @@ def request_verification(
             raise APIError(*error)
     else:
         normalized_identifier = normalize_email(identifier)
-        person = _person_for_email(session, normalized_identifier)
+        person = _person_for_email(session, normalized_identifier, unique=channel == "app")
     if person is None or not person.email:
         raise APIError(404, "unknown_identifier", "No encontramos datos para ese identificador.")
 
@@ -632,7 +632,9 @@ def confirm_verification(
     return {
         "trust_level": 2,
         "valid_until": aware(verification.valid_until).isoformat().replace("+00:00", "Z"),
-        "access_token": create_patient_token(person.id),
+        "access_token": create_patient_token(
+            person.id, app_verification_id=verification.id if channel == "app" else None,
+        ),
         "_new_session": result_identifier if channel == "web" else None,
     }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import useAbortableEffect from "../useAbortableEffect";
 import { Navigate, useNavigate } from "react-router-dom";
 import { formatMexicoDateTime, formatMexicoTime } from "../mexicoTime";
 import {
@@ -70,39 +71,57 @@ export default function CallCenter() {
     return () => window.clearInterval(timer);
   }, [call, countdownActive]);
 
-  useEffect(() => {
+  useAbortableEffect((signal) => {
     if (!allowed) return;
-    const controller = new AbortController();
-    Promise.all([getStudies(), getClinics()]).then(([studies, clinics]) => {
-      if (!controller.signal.aborted) setCatalog({ studies, clinics });
-    }).catch((reason) => { if (!controller.signal.aborted) setError(reason.message); });
-    return () => controller.abort();
+    Promise.all([getStudies(signal), getClinics(signal)]).then(([studies, clinics]) => {
+      if (!signal.aborted) setCatalog({ studies, clinics });
+    }).catch((reason) => { if (!signal.aborted) setError(reason.message); });
   }, [allowed]);
 
   useEffect(() => {
     if (!verified) return;
-    let active = true;
+    const controller = new AbortController();
     let refreshTimer;
+    let refreshing = false;
+    let refreshPending = false;
     async function refresh() {
       refreshTimer = undefined;
+      refreshing = true;
+      refreshPending = false;
       try {
-        const result = await getAgentContext(verified);
-        if (active) setContext(result);
+        const result = await getAgentContext(verified, controller.signal);
+        if (!controller.signal.aborted) setContext(result);
       } catch (reason) {
-        if (active) {
+        if (!controller.signal.aborted) {
           setContext(null);
           showError(reason);
           if (reason.error === "verification_required") setVerified(null);
         }
+      } finally {
+        refreshing = false;
+        if (refreshPending) scheduleRefresh();
       }
     }
     function scheduleRefresh() {
-      if (active && !refreshTimer) refreshTimer = window.setTimeout(refresh, 180);
+      if (controller.signal.aborted) return;
+      refreshPending = true;
+      if (!refreshing && refreshTimer === undefined) refreshTimer = window.setTimeout(refresh, 180);
     }
-    const stop = openStaffStream({
+    let initialTimer = window.setTimeout(() => {
+      initialTimer = undefined;
+      void refresh();
+    }, 500);
+    const closeStream = openStaffStream({
       onStatus: setConnection,
-      // Refresh on connection to cover the gap after verification.
-      onConnect: scheduleRefresh,
+      onConnect() {
+        if (initialTimer === undefined) {
+          scheduleRefresh();
+        } else {
+          window.clearTimeout(initialTimer);
+          initialTimer = undefined;
+          void refresh();
+        }
+      },
       onEvent: scheduleRefresh,
       onError(reason) {
         setContext(null);
@@ -110,6 +129,12 @@ export default function CallCenter() {
         showError(reason);
       },
     });
+    function stop() {
+      controller.abort();
+      window.clearTimeout(initialTimer);
+      window.clearTimeout(refreshTimer);
+      closeStream();
+    }
     liveStream.current = stop;
     const expiryTimer = window.setTimeout(() => {
       stop();
@@ -119,9 +144,7 @@ export default function CallCenter() {
       setError("La verificación venció. Valida de nuevo al solicitante para continuar.");
     }, validUntil ? Math.max(0, new Date(validUntil).getTime() - Date.now()) : 0);
     return () => {
-      active = false;
       window.clearTimeout(expiryTimer);
-      window.clearTimeout(refreshTimer);
       stop();
       liveStream.current = null;
     };
@@ -208,23 +231,29 @@ export default function CallCenter() {
       setAttempts(3);
       setBlockedUntil(null);
       setBirthDate("");
-      const result = await getAgentContext(selection.person_id);
       setVerified(selection.person_id);
-      setContext(result);
     });
   }
 
   function changeCase(item, fields) {
     run(async () => {
-      await patchAgentCase(item, fields);
-      setContext(await getAgentContext(verified));
+      const result = await patchAgentCase(item, fields);
+      setContext((current) => current?.person_id === verified ? {
+        ...current,
+        cases: current.cases.map((row) => row.id === item.id && row.version <= result.case.version
+          ? { ...row, ...result.case, missing_steps: result.missing_steps } : row),
+      } : current);
     });
   }
 
   function saveNote(caseId, text) {
     return run(async () => {
-      await addAgentNote(caseId, text);
-      setContext(await getAgentContext(verified));
+      const note = await addAgentNote(caseId, text);
+      setContext((current) => current?.person_id === verified ? {
+        ...current,
+        cases: current.cases.map((row) => row.id === caseId && !row.notes.some((item) => item.id === note.id)
+          ? { ...row, notes: [...row.notes, note] } : row),
+      } : current);
     });
   }
 
@@ -262,6 +291,7 @@ export default function CallCenter() {
       </header>
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
       {loading && <p role="status">Procesando…</p>}
+      {verified && !context && !error && <p role="status">Cargando contexto…</p>}
       <Step number={1} title="Llamada" active={stage === 1}>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
           <p>Estado: <strong>{call ? "En llamada" : endedCall ? "Terminada" : "Sin llamada"}</strong></p>
@@ -330,7 +360,7 @@ export default function CallCenter() {
         </>}
       </Step>
       <Step number={4} title="Atender" active={stage === 4} disabled={!context}>
-      {!context && <p className="mt-2 text-sm">Verifica la identidad para consultar el trámite.</p>}
+      {!context && !verified && <p className="mt-2 text-sm">Verifica la identidad para consultar el trámite.</p>}
       {context && (
         <>
           {context.cases.length === 0 && <p>El solicitante no tiene trámites.</p>}
