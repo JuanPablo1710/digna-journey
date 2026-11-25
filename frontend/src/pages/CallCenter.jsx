@@ -5,7 +5,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { formatMexicoDateTime, formatMexicoTime } from "../mexicoTime";
 import {
   addAgentNote, callCenterInteraction, getAgentContext, getClinics,
-  getSavedCall, getStaffSession, getStudies, lookupForAgent, openStaffStream, patchAgentCase, staffLogout,
+  getSavedCall, getSlots, getStaffSession, getStudies, lookupForAgent, openStaffStream, patchAgentCase, staffLogout,
   verifyForAgent,
 } from "../api";
 
@@ -55,7 +55,9 @@ export default function CallCenter() {
   const [context, setContext] = useState(null);
   const [catalog, setCatalog] = useState({ studies: [], clinics: [] });
   const [connection, setConnection] = useState("disconnected");
+  const [notice, setNotice] = useState("");
   const liveStream = useRef(null);
+  const reloadContext = useRef(null);
 
   const allowed = getStaffSession()?.role === "asesor";
   const blockedSeconds = Math.max(0, Math.ceil((blockedUntil - now) / 1000));
@@ -65,6 +67,7 @@ export default function CallCenter() {
     ((endedCall && !call ? endedCall.endedAt : now) - displayedCall.startedAt) / 1000
   )) : 0;
   const stage = verified ? 4 : selection ? 3 : call || identifying ? 2 : 1;
+  const canAttend = Boolean(verified && Date.parse(validUntil) > Date.now());
 
   useEffect(() => {
     if (!call && !countdownActive) return;
@@ -76,38 +79,51 @@ export default function CallCenter() {
     if (!allowed) return;
     Promise.all([getStudies(signal), getClinics(signal)]).then(([studies, clinics]) => {
       if (!signal.aborted) setCatalog({ studies, clinics });
-    }).catch((reason) => { if (!signal.aborted) setError(reason.message); });
+    }).catch((reason) => {
+      if (!signal.aborted) setError(reason.error ? reason.message : "No se pudieron cargar los estudios y las clínicas.");
+    });
   }, [allowed]);
 
   useEffect(() => {
     if (!verified) return;
     const controller = new AbortController();
     let refreshTimer;
-    let refreshing = false;
+    let refreshing;
     let refreshPending = false;
-    async function refresh() {
+    function refresh() {
+      window.clearTimeout(refreshTimer);
       refreshTimer = undefined;
-      refreshing = true;
+      if (controller.signal.aborted) return Promise.resolve(false);
+      if (refreshing) return refreshing;
       refreshPending = false;
-      try {
-        const result = await getAgentContext(verified, controller.signal);
-        if (!controller.signal.aborted) setContext(result);
-      } catch (reason) {
+      refreshing = getAgentContext(verified, controller.signal).then((result) => {
+        if (controller.signal.aborted) return false;
+        setContext(result);
+        return true;
+      }).catch((reason) => {
         if (!controller.signal.aborted) {
           setContext(null);
           showError(reason);
-          if (reason.error === "verification_required") setVerified(null);
         }
-      } finally {
-        refreshing = false;
+        return false;
+      }).finally(() => {
+        refreshing = undefined;
         if (refreshPending) scheduleRefresh();
-      }
+      });
+      return refreshing;
     }
     function scheduleRefresh() {
       if (controller.signal.aborted) return;
       refreshPending = true;
       if (!refreshing && refreshTimer === undefined) refreshTimer = window.setTimeout(refresh, 180);
     }
+    reloadContext.current = async () => {
+      // A request already in flight may predate the PATCH.
+      if (refreshing) await refreshing;
+      window.clearTimeout(initialTimer);
+      initialTimer = undefined;
+      return refresh();
+    };
     let initialTimer = window.setTimeout(() => {
       initialTimer = undefined;
       void refresh();
@@ -142,12 +158,14 @@ export default function CallCenter() {
       setContext(null);
       setVerified(null);
       setConnection("disconnected");
+      setNotice("");
       setError("La verificación venció. Valida de nuevo al solicitante para continuar.");
     }, validUntil ? Math.max(0, new Date(validUntil).getTime() - Date.now()) : 0);
     return () => {
       window.clearTimeout(expiryTimer);
       stop();
       liveStream.current = null;
+      reloadContext.current = null;
     };
   }, [verified, validUntil]);
 
@@ -164,6 +182,15 @@ export default function CallCenter() {
       logout();
       return;
     }
+    if (reason.error === "verification_required") {
+      liveStream.current?.();
+      setContext(null);
+      setVerified(null);
+      setConnection("disconnected");
+      setNotice("");
+      setError("La verificación ya no está vigente. Verifica de nuevo al solicitante.");
+      return;
+    }
     if (reason.attempts_remaining != null) setAttempts(reason.attempts_remaining);
     if (reason.retry_after_seconds != null) {
       const receivedAt = Date.now();
@@ -172,12 +199,13 @@ export default function CallCenter() {
       setError("");
       return;
     }
-    setError(reason.message);
+    setError(reason.error || reason.status ? reason.message : "No se pudo completar la operación. Intenta de nuevo.");
   }
 
   async function run(task) {
     setLoading(true);
     setError("");
+    setNotice("");
     try {
       await task();
     } catch (reason) {
@@ -237,13 +265,25 @@ export default function CallCenter() {
   }
 
   function changeCase(item, fields) {
+    if (!verified || !(Date.parse(validUntil) > Date.now())) {
+      showError({ error: "verification_required" });
+      return;
+    }
     run(async () => {
-      const result = await patchAgentCase(item, fields);
-      setContext((current) => current?.person_id === verified ? {
-        ...current,
-        cases: current.cases.map((row) => row.id === item.id && row.version <= result.case.version
-          ? { ...row, ...result.case, missing_steps: result.missing_steps } : row),
-      } : current);
+      const reload = reloadContext.current;
+      try {
+        await patchAgentCase(item, fields);
+      } catch (reason) {
+        if (reason.error !== "version_conflict") throw reason;
+        const reloaded = await reload?.();
+        if (reloadContext.current === reload) {
+          setNotice(reloaded
+            ? "El trámite cambió y se recargó. Revisa los pasos antes de volver a intentarlo."
+            : "El trámite cambió. No se pudo recargar su versión actual.");
+        }
+        return;
+      }
+      await reload?.();
     });
   }
 
@@ -262,14 +302,14 @@ export default function CallCenter() {
     event.preventDefault();
     setLoading(true);
     setError("");
+    setNotice("");
     setMatches(null);
     try {
       const result = await lookupForAgent(field, identifier);
       setMatches(result.matches);
       setSearchOrigin({ field, value: identifier });
     } catch (reason) {
-      if (reason.error === "invalid_token" || reason.error === "authentication_required") logout();
-      else setError(reason.message);
+      showError(reason);
     } finally {
       setLoading(false);
     }
@@ -294,6 +334,7 @@ export default function CallCenter() {
         })} className="text-sm underline">Cerrar sesión</button>
       </header>
       {error && <p role="alert" className="rounded-lg bg-danger-soft p-3 text-danger">{error}</p>}
+      {notice && <p role="status" className="rounded-lg bg-warning-soft p-3 text-warning">{notice}</p>}
       {loading && <p role="status">Procesando…</p>}
       {verified && !context && !error && <p role="status">Cargando contexto…</p>}
       <Step number={1} title="Llamada" active={stage === 1}>
@@ -339,7 +380,7 @@ export default function CallCenter() {
             <p className="text-sm">Teléfono: {searchOrigin?.field === "phone" ? maskedLookup("phone", searchOrigin.value) : "No disponible antes de verificar"}</p>
             <button className="option-button" type="button" disabled={loading} onClick={() => {
               setSelection(person); setBirthDate(""); setVerified(null); setContext(null);
-              setAttempts(null); setBlockedUntil(null); setError("");
+              setAttempts(null); setBlockedUntil(null); setError(""); setNotice("");
             }}>Seleccionar esta persona</button>
           </li>
         ))}</ul>}
@@ -363,13 +404,21 @@ export default function CallCenter() {
           </form>
         </>}
       </Step>
-      <Step number={4} title="Atender" active={stage === 4} disabled={!context}>
-      {!context && !verified && <p className="mt-2 text-sm">Verifica la identidad para consultar el trámite.</p>}
-      {context && (
+      <Step number={4} title="Atender" active={stage === 4} disabled={!canAttend || !context}>
+      {!canAttend && (
+        <div className="mt-2 space-y-3">
+          <p className="text-sm">Necesitas una verificación vigente del solicitante para consultar o modificar el trámite.</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {["Estudio", "Clínica", "Horario (CDMX)"].map((label) =>
+              <CaseSelect key={label} label={label} placeholder="Verificación requerida" disabled />)}
+          </div>
+        </div>
+      )}
+      {canAttend && context && (
         <>
           {context.cases.length === 0 && <p>El solicitante no tiene trámites.</p>}
           {context.cases.map((item) => <AgentCase key={item.id} item={item} catalog={catalog}
-            loading={loading} onConfirm={() => changeCase(item, { confirmed: true })} onNote={saveNote} />)}
+            loading={loading} onChange={(fields) => changeCase(item, fields)} onNote={saveNote} />)}
           <section className="rounded-xl bg-surface p-5 shadow-sm">
             <h2 className="font-semibold">Línea de tiempo</h2>
             <ol className="mt-3 space-y-2">
@@ -386,9 +435,53 @@ export default function CallCenter() {
   );
 }
 
-function AgentCase({ item, catalog, loading, onConfirm, onNote }) {
+function CaseSelect({ label, options = [], placeholder = "Elige una opción", disabled, onSelect }) {
+  return (
+    <label className="field">{label}
+      <select className="disabled:opacity-60" disabled={disabled || !options.length} value=""
+        onChange={(event) => { if (event.target.value) onSelect(event.target.value); }}>
+        <option value="" disabled>{placeholder}</option>
+        {options.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function AgentSlotSelect({ clinicId, disabled, onSelect }) {
+  const [slots, setSlots] = useState(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  useAbortableEffect((signal) => {
+    if (!clinicId) return;
+    getSlots(clinicId, signal).then((result) => {
+      if (!signal.aborted) setSlots(result);
+    }).catch((reason) => {
+      if (!signal.aborted) setError(reason.error ? reason.message : "No se pudieron consultar los horarios.");
+    });
+  }, [clinicId, attempt]);
+  const placeholder = !clinicId ? "Elige primero la clínica" : error ? "Horarios no disponibles"
+    : !slots ? "Cargando horarios…" : slots.length ? "Elige un horario" : "No hay horarios disponibles";
+  return (
+    <div className="space-y-2">
+      <CaseSelect label="Horario (CDMX)" placeholder={placeholder} disabled={disabled}
+        options={slots?.map((slot) => ({ id: slot.id, name: formatMexicoDateTime(slot.starts_at) }))}
+        onSelect={onSelect} />
+      {error && <>
+        <p role="alert" className="text-sm text-danger">{error}</p>
+        <button type="button" className="option-button" disabled={disabled} onClick={() => {
+          setError("");
+          setAttempt((value) => value + 1);
+        }}>Volver a cargar horarios</button>
+      </>}
+    </div>
+  );
+}
+
+function AgentCase({ item, catalog, loading, onChange, onNote }) {
   const [note, setNote] = useState("");
   const steps = { study: "Estudio", patient_data: "Datos del paciente", clinic: "Clínica", slot: "Horario", confirmed: "Confirmación" };
+  const pending = item.missing_steps;
+  const canEdit = item.status !== "cancelado" && item.status !== "cita_confirmada";
   return (
     <section className="space-y-3 rounded-xl bg-surface p-5 shadow-sm">
       <h3 className="font-semibold">Solicitante: {item.requester.full_name} · Paciente: {item.patient.full_name}</h3>
@@ -401,8 +494,18 @@ function AgentCase({ item, catalog, loading, onConfirm, onNote }) {
         <p>Pasos completados: {Object.keys(steps).filter((step) => item.steps[step]).map((step) => steps[step]).join(", ") || "Ninguno"}</p>
         <p>Pasos pendientes: {item.missing_steps.map((step) => steps[step]).join(", ") || "Ninguno"}</p>
       </div>
-      <button className="button-primary" type="button" disabled={loading || item.status === "cancelado" ||
-        item.missing_steps.length !== 1 || item.missing_steps[0] !== "confirmed"} onClick={onConfirm}>Confirmar cita</button>
+      {canEdit && ["study", "clinic", "slot"].some((step) => pending.includes(step)) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {pending.includes("study") && <CaseSelect label="Estudio" options={catalog.studies}
+            disabled={loading} onSelect={(study_id) => onChange({ study_id })} />}
+          {pending.includes("clinic") && <CaseSelect label="Clínica" options={catalog.clinics}
+            disabled={loading} onSelect={(clinic_id) => onChange({ clinic_id })} />}
+          {pending.includes("slot") && <AgentSlotSelect key={item.clinic_id} clinicId={item.clinic_id}
+            disabled={loading} onSelect={(slot_id) => onChange({ slot_id })} />}
+        </div>
+      )}
+      <button className="button-primary" type="button" disabled={loading || !canEdit ||
+        pending.length !== 1 || pending[0] !== "confirmed"} onClick={() => onChange({ confirmed: true })}>Confirmar cita</button>
       <h3 className="font-semibold">Notas internas</h3>
       <ul>{item.notes.map((entry) => <li key={entry.id} className="whitespace-pre-wrap">{entry.text}</li>)}</ul>
       <form className="flex flex-wrap items-end gap-3" onSubmit={async (event) => {

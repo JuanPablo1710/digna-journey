@@ -89,9 +89,9 @@ async function protocol(url) {
   };
 }
 
-async function api(path, body, headers = {}) {
+async function api(path, body, headers = {}, method = "POST") {
   const result = await fetch(backend + path, body ? {
-    method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body),
+    method, headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body),
   } : { headers }).catch((error) => { throw new Error(`No se pudo consultar ${path}`, { cause: error }); });
   if (!result.ok) throw new Error(`${path} devolvió ${result.status}`);
   return result.json();
@@ -169,7 +169,7 @@ async function ready(page, marker) {
   });
 }
 
-async function authorizeCall(page) {
+async function authorizeCall(page, { phone = "+522221111111", birthDate = "1985-04-12", folio = "C-1001" } = {}) {
   const input = `(element, value) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(element,value);
     element.dispatchEvent(new Event("input",{bubbles:true}));
@@ -177,22 +177,76 @@ async function authorizeCall(page) {
   }`;
   await page.evaluate(`{
     const form=document.querySelector('[aria-labelledby="cc-step-2"] form');
-    (${input})(form.querySelector('input'),'+522221111111');
+    (${input})(form.querySelector('input'), ${JSON.stringify(phone)});
   }`);
   await page.evaluate(`document.querySelector('[aria-labelledby="cc-step-2"] form').requestSubmit()`);
   await until(() => page.evaluate(`[...document.querySelectorAll("button")].find(b=>b.textContent==="Seleccionar esta persona")?.click() ?? !!document.querySelector('input[type=date]')`), "No se encontró el solicitante.");
   await page.evaluate(`{
     const field=document.querySelector('input[type=date]');
-    (${input})(field,'1985-04-12');
+    (${input})(field, ${JSON.stringify(birthDate)});
   }`);
   await page.evaluate(`document.querySelector('input[type=date]').form.requestSubmit()`);
-  return until(() => page.evaluate(`document.body.innerText.includes("Trámite C-1001") && Math.round(performance.now())`),
+  return until(() => page.evaluate(`document.body.innerText.includes(${JSON.stringify(`Trámite ${folio}`)}) && Math.round(performance.now())`),
     "No se abrió el contexto verificado.");
 }
 
-try {
-  const info = await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then((result) => result.json()).catch(() => null), "Chrome no inició.");
-  root = await protocol(info.webSocketDebuggerUrl);
+async function verifyCallCenterBooking() {
+  const folio = "C-1005";
+  sessions = { advisor: await api("/auth/login", { username: "asesor", password: "Asesor#2026" }) };
+  const headers = { Authorization: `Bearer ${sessions.advisor.access_token}` };
+  const page = await tab("/callcenter", "advisor");
+  const section = 'document.querySelector(\'[aria-labelledby="cc-step-4"]\')';
+  const selector = (name) => `[...${section}.querySelectorAll("label")].find(
+    (label) => label.firstChild.textContent.trim() === ${JSON.stringify(name)})?.querySelector("select")`;
+  const confirm = `[...${section}.querySelectorAll("button")].find((button) => button.textContent === "Confirmar cita")`;
+  const select = (name, value) => page.evaluate(`{
+    const input = ${selector(name)};
+    input.value = ${JSON.stringify(value)};
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }`);
+  try {
+    await ready(page, "Centro de contacto");
+    if (!await page.evaluate(`[...${section}.querySelectorAll("select")].every((input) => input.disabled)
+      && ${section}.textContent.includes("verificación vigente")`)) throw new Error("La vista debe exigir verificación.");
+    await authorizeCall(page, { phone: "+522220000005", birthDate: "1989-06-21", folio });
+    if (!await page.evaluate(`(${selector("Horario (CDMX)")})?.disabled && (${confirm})?.disabled`)) {
+      throw new Error("La cita requiere clínica y horario antes de confirmar.");
+    }
+
+    // Pause SSE to verify the explicit refresh after PATCH and force a stale version.
+    await page.evaluate(`
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    `);
+    await until(() => page.streams() === 0, "No se pausó el SSE.");
+    const context = await api("/agent/patients/P-1005/context", null, headers);
+    const item = context.cases.find((entry) => entry.id === folio);
+    await api(`/cases/${folio}`, { expected_version: item.version, fields: { study_id: item.study_id } }, headers, "PATCH");
+    await select("Clínica", "CL-002");
+    await ready(page, "El trámite cambió y se recargó.");
+
+    await select("Clínica", "CL-002");
+    const slot = await until(() => page.evaluate(`{
+      const input = ${selector("Horario (CDMX)")};
+      [...(input?.disabled ? [] : input?.options ?? [])].find((option) =>
+        option.value.startsWith("SL-CL-002-") && option.text.includes("9:00"))?.value;
+    }`), "No aparecieron los horarios locales de la clínica.");
+    await select("Horario (CDMX)", slot);
+    await until(() => page.evaluate(`(${confirm})?.disabled === false`), "No se habilitó la confirmación.");
+    await page.evaluate(`(${confirm}).click()`);
+    await until(() => page.evaluate(`
+      ${section}.innerText.includes("Trámite C-1005 · cita confirmada")
+      && ${section}.innerText.includes("clinica seleccionada")
+      && ${section}.innerText.includes("horario propuesto")
+      && ${section}.innerText.includes("cita confirmada")
+    `), "La cita y la línea de tiempo no se actualizaron.");
+    console.log("Call Center: recuperó un 409 y completó clínica, horario y confirmación.");
+  } finally {
+    await page.close();
+  }
+}
+
+async function measureRoutes() {
   const appHeaders = { "X-Channel-Key": "demo-app-key" };
   const email = "marta.demo@example.com";
   const identity = { channel: "app", identifier: email };
@@ -260,6 +314,13 @@ try {
     verified: samples.flatMap((sample) => sample.verified ? [sample.verified] : []),
   }]));
   console.log(JSON.stringify({ summary, both, upstreamWithTabs, upstreamWithHiddenTab, upstreamAfterClose: upstream, upstreamMax }));
+}
+
+try {
+  const info = await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then((result) => result.json()).catch(() => null), "Chrome no inició.");
+  root = await protocol(info.webSocketDebuggerUrl);
+  if (process.argv.includes("--callcenter-booking")) await verifyCallCenterBooking();
+  else await measureRoutes();
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
