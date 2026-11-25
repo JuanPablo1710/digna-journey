@@ -24,7 +24,7 @@
 
 **Cuatro pilares del reto:** Identidad · Contexto y estado · Trazabilidad · Seguridad.
 
-**Demo objetivo (caso de Ana).** Web → WhatsApp → Centro de contacto (→ App opcional), sin repetir datos, con tres escenarios de resiliencia (sección 14).
+**Demo objetivo (caso de Ana).** Web → WhatsApp → App → Centro de contacto → Admin, sin volver a capturar sus datos, con tres escenarios de resiliencia (sección 14).
 
 **Fuera de alcance:** integración con servicios reales de Salud Digna, WhatsApp/telefonía reales, pagos, catálogo o agenda reales, IA obligatoria.
 
@@ -133,6 +133,7 @@ IDs: cadenas cortas legibles (`P-0001`, `C-0001`, `evt_...`). Fechas en UTC ISO-
 
 - **Confianza de origen:** la sesión que *creó* los datos (p. ej. la web donde se hizo el preregistro) tiene nivel 2 sobre **esos** trámites mientras dure la sesión (30 min desde la última actividad). Cualquier **otro canal** debe verificar.
 - **Caducidad:** el nivel 2 expira a los 30 min (`valid_until`). Las acciones sensibles (confirmar, reagendar, cancelar, ver contexto) exigen nivel 2 vigente.
+- **Actividad en App:** cada consulta autenticada a `GET /me/cases` y cada interacción exitosa de App renueva `valid_until` a 30 minutos desde la actividad, con tope en la expiración del JWT. Con la sesión vigente, App entra directo a nivel 2. Al vencer, se vuelve a verificar por correo con el mismo flujo OTP.
 
 ### 5.3 Reconocimiento
 1. Buscar `channel_identities` por (`channel`, `identifier`).
@@ -344,6 +345,23 @@ Cada respuesta conserva la forma canónica de la sección 8.3. Las respuestas r�
 
 Para un número desconocido, `start_booking` captura uno por uno los datos indicados en la sección 9. Al completar los datos crea el trámite y después ofrece estudio, clínica y horario mediante respuestas rápidas. No busca ni fusiona por correo o fecha de nacimiento. La confianza de origen descrita en la sección 6.4 se limita a los `case_id` creados por esa conversación.
 
+#### 8.3.3 Formatos de App
+
+`POST /channels/app/interactions` usa el Bearer de App, `X-Channel-Key`, `kind="action"` y `identifier_type="account"`. El `identifier` es el correo verificado de la sesión. La lista de acciones y sus cuerpos aparecen también en `/openapi.json`.
+
+| Acción | Campos en `data` |
+|---|---|
+| `continue_case` | `case_id`, `expected_version` |
+| `select_study` | `case_id`, `expected_version`, `study_id` |
+| `select_clinic` | `case_id`, `expected_version`, `clinic_id` |
+| `select_slot` | `case_id`, `expected_version`, `slot_id` |
+| `confirm_case` | `case_id`, `expected_version` |
+| `preregister` | `study_id`, `relationship`, `patient` cuando es para otra persona |
+
+- El servidor comprueba que el trámite pertenezca a la cuenta como solicitante o paciente. Un trámite ajeno y uno inexistente devuelven el mismo 404. Una versión desactualizada devuelve 409 con el resumen actual de App. Una repetición con la misma `idempotency_key` conserva la escritura original y evita duplicar eventos.
+- `preregister` usa el solicitante de la sesión, exige `study_id` y crea el trámite en versión 1. Los valores de `relationship` son los de Web. Con `self` se omite `patient`. Para otra persona, `patient` incluye `full_name` y `birth_date`. App reutiliza una coincidencia única y exacta entre los pacientes ya vinculados a ese solicitante. Si el cliente especifica correo y teléfono juntos, también puede identificarse a un paciente por coincidencia exacta de esos dos datos y del nombre y la fecha. Cuando la búsqueda vinculada no encuentra a nadie, se crea un paciente provisional sin identidad de canal. Una coincidencia ambigua requiere revisar los datos.
+- App usa la respuesta canónica con nivel 2, resumen del trámite y `timeline` simple. Una operación sobre un trámite de otro canal registra `canal_cambiado` al tomarlo. Si solo falta registrar el paso de datos del paciente y los datos requeridos ya existen, se registra ese paso al confirmar. Los horarios viajan en UTC y se muestran en `America/Mexico_City`.
+
 ### 8.4 Identidad
 - `POST /identity/verify/request` `{channel, identifier, method, birth_date?}` → crea verificación (OTP al buzón simulado).
 - `POST /identity/verify/confirm` `{channel, identifier, code}` → `{trust_level, valid_until, access_token?}`.
@@ -353,7 +371,7 @@ Formatos de S2:
 - `channel`: `web | app | whatsapp | callcenter`.
 - `method`: `email_otp | dob_check`. `agent_assisted` existe en el servicio de identidad, pero su endpoint se agrega en S4.
 - Para `web` y `app`, `email_otp` usa el correo normalizado como `identifier`.
-- En App, ambos endpoints de OTP requieren `X-Channel-Key`. El correo debe identificar una sola persona. El JWT de App queda vinculado a esa verificación y el acceso vence a los 30 minutos. Un JWT de Web o WhatsApp no sustituye la verificación de App.
+- En App, ambos endpoints de OTP requieren `X-Channel-Key`. El correo debe identificar una sola persona. El JWT de App queda vinculado a esa verificación, con la vigencia renovable descrita en 5.2. Un JWT de Web o WhatsApp no sustituye la verificación de App.
 - Para `whatsapp`, `dob_check` usa el teléfono normalizado como `identifier` y exige `birth_date`. Solo después de un `dob_check` exitoso se permite solicitar `email_otp` para ese teléfono; el código se envía al correo registrado, nunca al mismo teléfono.
 
 Respuesta de solicitud OTP:
@@ -385,10 +403,10 @@ En web, la solicitud usa la cookie `web_session` existente. Al confirmar correct
 ### 8.5 Trámites
 - `GET /cases/{id}` → según rol y nivel de confianza (sección 10).
 - `PATCH /cases/{id}` `{expected_version, fields}` → actualiza pasos/campos (409 si hay conflicto).
-- `GET /me/cases` (JWT de paciente emitido por App y `X-Channel-Key` vigente) → `{cases}`. Cada fila incluye `id` (folio), `study_id`, `clinic_id`, `status`, `steps`, `slot_datetime`, `last_channel`, `version`, `relationship` y `patient_name` cuando el trámite es para otra persona. Se listan únicamente los trámites del solicitante autenticado.
+- `GET /me/cases` (JWT de paciente emitido por App y `X-Channel-Key` vigente) → `{cases}`. Cada fila incluye `id` (folio), `study_id`, `clinic_id`, `status`, `steps`, `slot_datetime`, `last_channel`, `version`, `relationship` y `patient_name` cuando el trámite es para otra persona. Se listan los trámites en los que la cuenta es solicitante o paciente.
 - `GET /cases/{id}/timeline` → eventos del trámite en orden cronológico (paciente: versión simple; asesor: completa).
 
-`POST /channels/app/interactions` recibe el mismo Bearer y la clave de App. Usa `kind="action"`, `action="continue_case"`, correo verificado con `identifier_type="account"` y `data={case_id,expected_version}`. Abrir un trámite registra `canal_cambiado` cuando el último canal difiere e incrementa la versión. Un reintento con la misma clave no repite el cambio. Devuelve la vista canónica con un `timeline` simple, sin eventos de notas internas ni de auditoría.
+`POST /channels/app/interactions` usa los formatos de 8.3.3. Abrir un trámite registra `canal_cambiado` cuando el último canal difiere e incrementa la versión. La línea de tiempo excluye las notas internas y los eventos de auditoría. Este POST y `GET /me/cases` devuelven la vigencia renovada en la cabecera `X-App-Valid-Until` (UTC) en respuestas exitosas.
 
 En S1, la sesión web de origen obtiene esta forma de respuesta de `GET /cases/{id}`:
 
@@ -568,7 +586,7 @@ Una app React; **cada ruta es un cliente independiente que solo usa `src/api.js`
 | `/web` | Sitio web | Cotizador (estudio → precio demo) → agendar → formulario de preregistro (nombre, fecha de nacimiento, correo, teléfono, ¿para quién?) → clínica → horario → confirmar. La sesión del navegador es el identificador. Se puede cerrar a mitad. |
 | `/whatsapp` | WhatsApp | Marco de teléfono con burbujas y respuestas rápidas. Campo para elegir el **número de teléfono simulado**. Envía interacciones y pinta las respuestas. Enlace al buzón. |
 | `/callcenter` | Centro de contacto | Login de asesor. "Softphone": ingresar número y **simular llamada entrante** → búsqueda; botón de verificación asistida; panel con contexto, línea de tiempo y acciones (confirmar, agregar nota). Se actualiza en vivo. |
-| `/app` | App móvil | Marco de teléfono. Login por correo + OTP. Muestra "Mis trámites", progreso, cita confirmada y línea de tiempo. Identifica paciente y parentesco en citas de terceros. |
+| `/app` | App móvil | Marco de teléfono. Login por correo + OTP cuando hace falta. Muestra "Mis trámites", progreso y línea de tiempo. Permite iniciar, continuar y confirmar una cita. Identifica paciente y parentesco en citas de terceros. |
 | `/admin` | Tablero | Login de admin. KPIs, tabla de trámites enmascarada con el recorrido de canales, feed de eventos en vivo, bitácora de auditoría, botones de reset/seed. |
 | `/mailbox` | Correo simulado | Bandeja pública de demo con los OTP enviados. |
 
@@ -610,7 +628,7 @@ Credenciales de prueba (documentar en README):
 ## 14. Pruebas de aceptación (pytest)
 
 Deben existir y pasar:
-1. `test_ana_full_flow`: Web (preregistro + clínica) → WhatsApp (reconoce, dob, OTP, elige horario) → Callcenter (verificación asistida, confirma) → App (ve cita confirmada). Verifica estados, `canal_cambiado` y la línea de tiempo.
+1. `test_ana_full_flow`: Web (preregistro y estudio) → WhatsApp (reconoce, verifica y elige clínica) → App (retoma el folio y elige horario) → Call Center (verificación asistida y confirmación) → Admin (recorrido de los cuatro canales y estado enmascarado).
 2. `test_interruption_resume`: abandonar a mitad de WhatsApp y regresar retoma el paso exacto.
 3. `test_partial_info_prompts_missing`: con datos incompletos, el sistema pide **solo** lo que falta.
 4. `test_unknown_number_no_data`: número desconocido → no se muestran datos.
@@ -638,7 +656,7 @@ Cada rebanada termina con pruebas verdes y el backend/frontend arrancando sin er
 | **S3 · WhatsApp** | Adaptador, motor conversacional, simulador `/whatsapp` | Se retoma desde WhatsApp el trámite hecho en la web (prueba 2 y 3) |
 | **S4 · Roles + Call Center** | Login, permisos, adaptador callcenter, consola del asesor, notas, auditoría | Pruebas 9 y 11 verdes; Ana se confirma desde `/callcenter` |
 | **S5 · Admin + tiempo real** | Tablero, enmascarado, SSE, auditoría | Prueba 10 verde; el tablero se actualiza en vivo |
-| **S6 · App + pulido** | `/app` (OTP), reagendar opcional, reset/seed, README con credenciales, `test_ana_full_flow` completo | Demo completa repetible con un clic de reset |
+| **S6 · App interactiva** | `/app` con sesión renovable, consulta, preregistro, retoma y confirmación. README y `test_ana_full_flow` | Recorrido Web → WhatsApp → App → Call Center → Admin reproducible desde el seed |
 
 **Decisiones de recorte:** si al terminar S5 hay poco tiempo, la App (S6) se recorta; lo demás **no**.
 

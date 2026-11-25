@@ -49,36 +49,40 @@ sequenceDiagram
     actor Ana
     participant Web
     participant WA as WhatsApp
-    participant CC as Call Center
     participant App
+    participant CC as Call Center
+    participant Admin
     participant API as FastAPI
     participant OTP as Buzón de demo
     participant DB as SQLite
-    Ana->>Web: Registra sus datos y elige estudio y clínica
-    Web->>API: Preregistro y selección de clínica
+    Ana->>Web: Elige estudio y registra sus datos
+    Web->>API: Preregistro
     API->>DB: Guarda el trámite y los eventos
-    API-->>Web: Folio y estado clínica elegida
+    API-->>Web: Folio y estado datos completos
     Ana->>WA: Retoma con su teléfono
     WA->>API: Reconocimiento y fecha de nacimiento
     API->>OTP: Deposita código simulado
-    Ana->>WA: Valida el código y elige horario
-    WA->>API: Selección de horario con versión
-    API->>DB: Conserva el folio, registra cambio de canal y horario
+    Ana->>WA: Valida el código y elige clínica
+    WA->>API: Selección de clínica con versión
+    API->>DB: Conserva el folio y registra cambio de canal y clínica
+    opt Sesión App nueva o vencida
+        Ana->>App: Ingresa su correo
+        App->>API: Solicita código OTP
+        API->>OTP: Deposita un código para App
+        Ana->>App: Ingresa el último código
+        App->>API: Confirma código
+    end
+    App->>API: Consulta y abre el trámite con versión
+    Ana->>App: Elige horario de Ciudad de México
+    App->>API: Selección de horario con versión
+    API->>DB: Registra el cambio a App y guarda el horario
     Ana->>CC: Llama para confirmar
-    CC->>API: Identifica a la solicitante y verifica fecha de nacimiento
+    CC->>API: Verifica fecha de nacimiento del solicitante
     API-->>CC: Contexto y horario ya capturados
     CC->>API: Confirma la cita con versión
-    API->>DB: Registra cambio de canal y cita confirmada
-    Ana->>App: Ingresa su correo
-    App->>API: Solicita código OTP
-    API->>OTP: Deposita un código para App
-    Ana->>App: Ingresa el último código
-    App->>API: Confirma código y consulta Mis trámites
-    API-->>App: Mismo folio y cita confirmada
-    Ana->>App: Abre el trámite
-    App->>API: Continuar trámite con versión
-    API->>DB: Registra el cambio a App
-    API-->>App: Línea de tiempo con los cuatro canales
+    API->>DB: Registra cambio a Call Center y cita confirmada
+    Admin->>API: Consulta el tablero
+    API-->>Admin: Estado y recorrido enmascarados
 ```
 
 ## Modelo de datos
@@ -169,7 +173,7 @@ erDiagram
 
 | Tema | Implementación |
 |---|---|
-| Reagendar desde App | Función opcional pendiente. La App consulta y abre el trámite. |
+| Reagendar desde App | Función opcional pendiente. La App inicia, retoma y confirma trámites. |
 | Folio corto de retoma y búsqueda por teléfono con fecha | La retoma usa correo con OTP. App muestra el identificador de trámite existente como folio. |
 | Abandono | Hay ejemplos en el seed y recuperación al retomar. La tarea periódica y `POST /demo/cases/{id}/abandon` siguen pendientes. |
 | Verificación asistida | El asesor valida la fecha de nacimiento. El dictado de OTP al asesor sigue pendiente. |

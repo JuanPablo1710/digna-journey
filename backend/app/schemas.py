@@ -29,9 +29,12 @@ class PersonInput(BaseModel):
         return value
 
 
+Relationship = Literal["self", "hijo_a", "madre_padre", "pareja", "otro"]
+
+
 class PreregisterData(BaseModel):
     requester: PersonInput
-    relationship: Literal["self", "hijo_a", "madre_padre", "pareja", "otro"]
+    relationship: Relationship
     patient: PersonInput | None = None
     study_id: str | None = None
 
@@ -45,7 +48,7 @@ class DraftPersonInput(BaseModel):
 
 class DraftData(BaseModel):
     requester: DraftPersonInput | None = None
-    relationship: Literal["self", "hijo_a", "madre_padre", "pareja", "otro"] | None = None
+    relationship: Relationship | None = None
     patient: DraftPersonInput | None = None
     study_id: str | None = None
 

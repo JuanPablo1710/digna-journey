@@ -9,7 +9,7 @@ from .config import settings
 from .db import SessionLocal, create_tables
 from .errors import APIError
 from .modules.adapters.web import router as web_router
-from .modules.adapters.app import router as app_router
+from .modules.adapters.app import VALID_UNTIL_HEADER, router as app_router
 from .modules.adapters.callcenter import router as callcenter_router
 from .modules.adapters.whatsapp import router as whatsapp_router
 from .modules.admin import router as admin_router
@@ -51,6 +51,7 @@ def create_app(*, demo_mode: bool | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[VALID_UNTIL_HEADER],
     )
     for router in (catalog_router, web_router, whatsapp_router, app_router, identity_router, auth_router, admin_router,
                    agent_router, agent_case_router, callcenter_router, resume_router, demo_router, stream_router):

@@ -25,7 +25,7 @@ function setWebSession(identifier) {
   localStorage.setItem(WEB_SESSION_KEY, identifier);
 }
 
-async function request(path, options = {}) {
+async function request(path, options = {}, onResponse) {
   const response = await fetch(`${API_URL}${path}`, {
     credentials: "include",
     ...options,
@@ -36,6 +36,7 @@ async function request(path, options = {}) {
     if (body) Object.assign(error, body);
     throw error;
   }
+  onResponse?.(response);
   return body;
 }
 
@@ -411,10 +412,10 @@ export async function loginApp(email, code) {
   return session;
 }
 
-export function getAppSession() {
+export function getAppSession({ includeExpired = false } = {}) {
   try {
     const saved = JSON.parse(sessionStorage.getItem(APP_SESSION_KEY));
-    return saved && new Date(saved.valid_until).getTime() > Date.now() ? saved : null;
+    return saved && (includeExpired || Date.parse(saved.valid_until) > Date.now()) ? saved : null;
   } catch {
     return null;
   }
@@ -428,20 +429,35 @@ function appHeaders(session) {
   return { Authorization: `Bearer ${session.access_token}`, "X-Channel-Key": APP_CHANNEL_KEY };
 }
 
-export function listAppCases(session, signal) {
-  return request("/me/cases", { headers: appHeaders(session), signal });
+function appRequest(path, session, options, onRenew) {
+  return request(path, {
+    ...options, headers: { ...appHeaders(session), ...options.headers },
+  }, (response) => {
+    const validUntil = response.headers.get("X-App-Valid-Until");
+    if (!validUntil) return;
+    const stored = getAppSession({ includeExpired: true });
+    if (stored?.access_token !== session.access_token) return;
+    if (Date.parse(validUntil) >= Date.parse(stored.valid_until)) {
+      sessionStorage.setItem(APP_SESSION_KEY, JSON.stringify({ ...stored, valid_until: validUntil }));
+      onRenew?.(validUntil);
+    }
+  });
 }
 
-export function openAppCase(session, item) {
-  return request("/channels/app/interactions", {
+export function listAppCases(session, signal, onRenew) {
+  return appRequest("/me/cases", session, { signal }, onRenew);
+}
+
+export function sendAppInteraction(session, action, data, onRenew) {
+  return appRequest("/channels/app/interactions", session, {
     method: "POST",
-    headers: { ...appHeaders(session), "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      identifier: session.email, identifier_type: "account", kind: "action", action: "continue_case",
+      identifier: session.email, identifier_type: "account", kind: "action", action,
       idempotency_key: crypto.randomUUID(), timestamp: new Date().toISOString(),
-      data: { case_id: item.id, expected_version: item.version },
+      data,
     }),
-  });
+  }, onRenew);
 }
 
 export async function getMailbox(email, signal) {

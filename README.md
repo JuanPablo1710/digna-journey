@@ -35,7 +35,7 @@ Necesitas Python 3.11 o posterior y Node.js 18 o posterior.
    npm run dev
    ```
 
-Abre `http://localhost:5173/web`. La documentación de la API está en `http://localhost:8000/docs`. Las pruebas de red y cookies de desarrollo usan el proxy de Vite.
+Abre `http://localhost:5173/web`. Los contratos de la API se publican en `http://localhost:8000/docs` y `http://localhost:8000/openapi.json`. Las pruebas de red y cookies de desarrollo usan el proxy de Vite.
 
 ## Pruebas y compilación
 
@@ -53,12 +53,14 @@ Con `DEMO_MODE=true`, ejecuta `python -m app.modules.demo.reset` desde `backend`
 | Admin | `/login` con `admin` / `Admin#2026` |
 | Paciente | En `/app`, solicita un OTP con `marta.demo@example.com` o el correo de Ana. Consulta el código en `/mailbox`. |
 
-Para replicar el recorrido Web → WhatsApp → Call Center → App, sigue [DEMO.md](DEMO.md). Ana comienza sin datos. Marta y Pablo comparten un número en el seed. Con el OTP de Marta puedes consultar en App el trámite que ella solicitó para Pablo.
+Para replicar el recorrido Web → WhatsApp → App → Call Center → Admin, sigue [DEMO.md](DEMO.md). Ana comienza sin datos. Marta y Pablo comparten un número en el seed. Con el OTP de Marta puedes continuar su trámite para Pablo o iniciar otro con los mismos datos de paciente.
+
+En `/app`, abre un folio en **Mis trámites** para ver su línea de tiempo y completar los pasos pendientes. También puedes pulsar **Iniciar un trámite** y agendar para ti u otra persona. La App reutiliza la sesión verificada vigente y la renueva hasta 30 minutos desde la última actividad autenticada, dentro de la vigencia del JWT. Las acciones y sus formatos están en [SPEC.md, sección 8.3.3](SPEC.md#833-formatos-de-app).
 
 ## Límites de la demo
 
 - Todos los datos son ficticios. El buzón es público solo en modo demo y revelar el correo permite consultar sus mensajes. WhatsApp y las llamadas son simulaciones.
-- App consulta citas existentes. Reagendar desde App queda pendiente como función opcional.
+- App permite iniciar, continuar y confirmar trámites. Reagendar una cita confirmada queda pendiente como función opcional.
 - Los horarios de clínicas son ficticios, de 09:00 a 13:00 en Ciudad de México. Las marcas de tiempo se guardan en UTC.
 - SQLite está pensado para una instancia de la demo. El plazo de abandono se conserva como configuración, pero el marcado periódico no está implementado.
 - El despliegue en un solo origen requiere habilitar el servicio de archivos estáticos descrito en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Es una propuesta pendiente de aprobación.

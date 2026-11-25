@@ -456,6 +456,37 @@ def request_verification(
     }
 
 
+def _exact_contact(email: str, phone: str):
+    return select(Person).where(Person.email == email, Person.phone == phone)
+
+
+def resolve_dependent_patient(
+    session: Session, requester: Person, *, full_name: str, birth_date: date,
+    email: str | None = None, phone: str | None = None,
+) -> Person:
+    name = full_name.strip()
+    if len(name) < 2:
+        raise APIError(422, "incomplete_person", "Captura el nombre completo del paciente.")
+    if bool(email) != bool(phone):
+        raise APIError(422, "incomplete_patient_contact", "Indica el correo y el teléfono del paciente juntos.")
+    if email and phone:
+        query = _exact_contact(normalize_email(email), normalize_phone(phone))
+    else:
+        # With only name and birth date, reuse patients already linked to this requester.
+        linked = select(Case.patient_id).where(Case.requester_id == requester.id)
+        query = select(Person).where(Person.id.in_(linked))
+    matches = session.scalars(query.where(
+        Person.full_name == name, Person.birth_date == birth_date, Person.id != requester.id,
+    ).limit(2)).all()
+    if len(matches) > 1 or (email and phone and not matches):
+        raise APIError(422, "patient_match_required", "Revisa los datos del paciente para continuar.")
+    if matches:
+        return matches[0]
+    patient = Person(id=new_id("P"), full_name=name, birth_date=birth_date, is_provisional=True)
+    session.add(patient)
+    return patient
+
+
 def _merge_exact_provisionals(
     session: Session,
     person: Person,
@@ -466,11 +497,9 @@ def _merge_exact_provisionals(
     if not person.phone or not person.email:
         return
     duplicates = session.scalars(
-        select(Person).where(
+        _exact_contact(person.email, person.phone).where(
             Person.id != person.id,
             Person.is_provisional.is_(True),
-            Person.phone == person.phone,
-            Person.email == person.email,
         )
     ).all()
     if not duplicates:

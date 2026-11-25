@@ -164,15 +164,7 @@ def create_case(
             person_id=requester.id,
             payload={"relationship": relationship},
         ),
-        append_event(
-            session,
-            event_type="datos_paciente_capturados",
-            channel=channel,
-            actor_id=actor_id,
-            case_id=case.id,
-            person_id=requester.id,
-            payload={"relationship": relationship},
-        ),
+        _record_patient_data(session, case, channel=channel, actor_id=actor_id),
     ]
     if study_id:
         events.append(
@@ -189,6 +181,19 @@ def create_case(
     return case, events
 
 
+def _record_patient_data(session: Session, case: Case, *, channel: str, actor_id: str):
+    apply_step(case, "patient_data")
+    return append_event(
+        session,
+        event_type="datos_paciente_capturados",
+        channel=channel,
+        actor_id=actor_id,
+        case_id=case.id,
+        person_id=case.requester_id,
+        payload={"relationship": case.relationship},
+    )
+
+
 def update_case(
     session: Session,
     case: Case,
@@ -203,6 +208,7 @@ def update_case(
     slot_id: str | None = None,
     actor_role: str = "paciente",
     call_id: str | None = None,
+    use_saved_patient_data: bool = False,
 ) -> tuple[list[Any], str]:
     check_version(session, case, expected_version)
     if case.status == "cancelado":
@@ -248,6 +254,8 @@ def update_case(
         patient = session.get(Person, case.patient_id)
         if requester is None or patient is None or not requester.full_name or not requester.birth_date or not patient.full_name or not patient.birth_date:
             raise APIError(422, "incomplete_person", "La persona necesita nombre y fecha de nacimiento antes de continuar.")
+        if use_saved_patient_data and requester.email and requester.phone and not case.steps.get("patient_data"):
+            events.append(_record_patient_data(session, case, channel=channel, actor_id=actor_id))
         if any(not case.steps.get(step, False) for step in ("study", "patient_data", "clinic", "slot")):
             raise APIError(422, "incomplete_case", "Completa los datos pendientes antes de confirmar la cita.")
         apply_step(case, "confirmed")

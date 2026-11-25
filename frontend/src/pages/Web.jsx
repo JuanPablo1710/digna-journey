@@ -3,6 +3,7 @@ import SimulateNewDevice from "../SimulateNewDevice";
 import ResumeByEmail from "../ResumeByEmail";
 import { formatMexicoDateTime as formatSlot } from "../mexicoTime";
 import useAbortableEffect from "../useAbortableEffect";
+import { CatalogOptions, PatientFields, StudyOptions } from "../BookingFields";
 
 import {
   cancelWebCase,
@@ -17,14 +18,6 @@ import {
   saveWebDraft,
   sendWebInteraction,
 } from "../api";
-
-
-const relationshipLabels = {
-  hijo_a: "Mi hijo o hija",
-  madre_padre: "Mi madre o padre",
-  pareja: "Mi pareja",
-  otro: "Otra persona",
-};
 
 
 function draftData(form, studyId) {
@@ -537,15 +530,7 @@ export default function Web() {
                   Solicitante: <strong>{caseData.requester.full_name}</strong>. Tus datos ya están precargados.
                 </p>
               )}
-              <div className="mt-6 grid gap-3">
-                {studies.map((study) => (
-                  <label key={study.id} className={`option-card ${studyId === study.id ? "option-card-selected" : ""}`}>
-                    <input className="h-4 w-4 accent-cyan-600" type="radio" name="study" value={study.id} checked={studyId === study.id} onChange={() => setStudyId(study.id)} />
-                    <span className="flex-1"><strong>{study.name}</strong><small className="mt-1 block text-slate-500">{study.preparation}</small></span>
-                    <strong>${study.price} MXN</strong>
-                  </label>
-                ))}
-              </div>
+              <StudyOptions studies={studies} studyId={studyId} onSelect={setStudyId} />
               <button className="button-primary mt-6 w-full sm:w-auto" disabled={!studyId || loading}>Cotizar este estudio</button>
             </form>
           )}
@@ -562,21 +547,7 @@ export default function Web() {
                 <label className="field">Fecha de nacimiento<input required readOnly={thirdParty} type="date" name="birthDate" value={form.birthDate} onChange={updateForm} /></label>
                 <label className="field">Teléfono<input required readOnly={thirdParty} type="tel" name="phone" placeholder="222 123 4567" value={form.phone} onChange={updateForm} /></label>
                 <label className="field sm:col-span-2">Correo electrónico<input required readOnly={thirdParty} type="email" name="email" value={form.email} onChange={updateForm} /></label>
-                <fieldset className="sm:col-span-2">
-                  <legend className="text-sm font-semibold">¿Para quién es el estudio?</legend>
-                  <div className="mt-2 flex gap-4">
-                    <label><input className="mr-2 accent-cyan-600" type="radio" name="forWhom" value="self" checked={form.forWhom === "self"} onChange={updateForm} />Para mí</label>
-                    <label><input className="mr-2 accent-cyan-600" type="radio" name="forWhom" value="other" checked={form.forWhom === "other"} onChange={updateForm} />Para otra persona</label>
-                  </div>
-                </fieldset>
-                {form.forWhom === "other" && (
-                  <>
-                    <p className="text-sm text-slate-700 sm:col-span-2">Aviso de privacidad simulado. Los datos del paciente se usan para gestionar su cita. Continúa solo si tienes permiso para compartirlos.</p>
-                    <label className="field">Parentesco<select name="relationship" value={form.relationship} onChange={updateForm}>{Object.entries(relationshipLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                    <label className="field">Nombre del paciente<input required name="patientName" value={form.patientName} onChange={updateForm} /></label>
-                    <label className="field">Fecha de nacimiento del paciente<input required type="date" name="patientBirthDate" value={form.patientBirthDate} onChange={updateForm} /></label>
-                  </>
-                )}
+                <PatientFields form={form} onChange={updateForm} />
               </div>
               <button className="button-primary mt-6" disabled={loading}>Guardar y continuar</button>
             </form>
@@ -586,14 +557,14 @@ export default function Web() {
             <div>
               <h2 className="section-title">Elige una clínica</h2>
               <p className="section-copy">Todas las ubicaciones son ficticias.</p>
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">{clinics.map((clinic) => <button key={clinic.id} className="option-button" disabled={loading} onClick={() => chooseClinic(clinic.id)}>{clinic.name}</button>)}</div>
+              <CatalogOptions items={clinics} disabled={loading} onSelect={chooseClinic} />
             </div>
           )}
 
           {phase === "slot" && (
             <div>
               <h2 className="section-title">Elige un horario</h2>
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">{slots.map((slot) => <button key={slot.id} className="option-button" disabled={loading} onClick={() => chooseSlot(slot.id)}>{formatSlot(slot.starts_at)}</button>)}</div>
+              <CatalogOptions items={slots} disabled={loading} onSelect={chooseSlot} slots />
             </div>
           )}
 
