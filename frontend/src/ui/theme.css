@@ -1,62 +1,36 @@
-.app-theme {
-  --color-page: #eaf3f3;
-  --color-panel: #fff;
-  --color-ink: #132f34;
-  --color-muted: #456065;
-  --color-border: #c1d6d8;
-  --color-primary: #076267;
-  --color-primary-strong: #054a4e;
-  --color-active: #ddf1f1;
-  --color-confirmed: #d8f2e4;
-  --color-danger: #852d38;
-  --color-alert: #fff0f0;
-  --color-web: #e6edff;
-  --color-whatsapp: #dcf4dd;
-  --color-callcenter: #f1e9fc;
-  --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+:root {
+  --brand-yellow: #FDB61C;
+  --brand-green: #01A96C;
+  --brand-gray: #818285;
+  --font-body: "Century Gothic", "Century Gothic Paneuropean", Questrial, "Segoe UI", sans-serif;
+
+  --color-page: #f6f7f4;
+  --color-surface: #fff;
+  --color-subtle: #eceeeb;
+  --color-ink: #202522;
+  --color-muted: #505651;
+  --color-line: #d3d8d3;
+  --color-primary: #006749;
+  --color-primary-strong: #004e37;
+  --color-primary-soft: #e9f6ef;
+  --color-on-primary: #fff;
+
+  --color-success: #005b3c;
+  --color-success-soft: #dff3e7;
+  --color-warning: #593b00;
+  --color-warning-soft: #fff0c9;
+  --color-danger: #8a293b;
+  --color-danger-soft: #fff0f2;
+  --color-danger-line: #e8b8c0;
+  --color-info: #234955;
+  --color-info-soft: #e9f1f5;
+  --color-info-line: #b6ccd2;
+
   --radius: .85rem;
   --radius-phone: 1.8rem;
-  --shadow: 0 1rem 3rem #132f3422;
+  --shadow: 0 1rem 3rem rgb(32 37 34 / 13%);
   --space-1: .35rem;
   --space-2: .65rem;
   --space-3: 1rem;
   --space-4: 1.4rem;
-  min-height: 100vh;
-  padding: var(--space-4) var(--space-3);
-  background: var(--color-page);
-  color: var(--color-ink);
-  font: 1rem/1.45 var(--font-body);
 }
-
-.app-phone { max-width: 29rem; margin: 0 auto; overflow: hidden; border: 3px solid var(--color-ink); border-radius: var(--radius-phone); background: var(--color-page); box-shadow: var(--shadow); }
-.app-phone header { padding: var(--space-4); background: var(--color-primary-strong); color: white; }
-.app-phone h1 { margin: 0 0 var(--space-2); font-size: 1.55rem; font-weight: 750; }
-.app-phone h2 { margin: 0 0 var(--space-2); font-size: 1.2rem; font-weight: 700; }
-.app-body, .app-stack { display: grid; gap: var(--space-3); }
-.app-body { padding: var(--space-3); }
-.app-card { border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-panel); padding: var(--space-3); }
-.app-button { padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius); background: var(--color-primary); color: white; font-weight: 700; text-align: center; cursor: pointer; }
-.app-button:hover { background: var(--color-primary-strong); }
-.app-button-secondary { border-color: currentColor; background: var(--color-panel); color: var(--color-primary-strong); }
-.app-button-secondary:hover { background: var(--color-active); }
-.app-button:disabled { opacity: .55; cursor: not-allowed; }
-.app-theme :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
-.app-theme header :focus-visible { outline-color: white; }
-.app-theme label { display: grid; gap: var(--space-1); font-weight: 650; }
-.app-theme :is(input:not([type="radio"]), select) { width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-panel); color: var(--color-ink); }
-.app-theme :is(.option-card, .booking-radio) { display: flex; align-items: center; }
-.app-theme .option-button { text-align: left; }
-.app-theme a { color: var(--color-primary-strong); text-decoration: underline; }
-.app-badge { display: inline-flex; align-items: center; gap: var(--space-1); border-radius: var(--radius); background: var(--color-active); padding: var(--space-1) var(--space-2); font-size: .875rem; font-weight: 650; }
-.app-badge[data-tone="positive"], .app-badge[data-tone="whatsapp"] { background: var(--color-confirmed); }
-.app-badge[data-tone="web"] { background: var(--color-web); }
-.app-badge[data-tone="callcenter"] { background: var(--color-callcenter); }
-.app-badge[data-tone="negative"] { color: var(--color-danger); background: var(--color-alert); }
-.app-bubble { border-radius: var(--radius) var(--radius) var(--radius) .2rem; background: var(--color-active); padding: var(--space-2) var(--space-3); }
-.app-error { color: var(--color-danger); background: var(--color-alert); }
-.app-table { width: 100%; border-collapse: collapse; text-align: left; }
-.app-table :is(th, td) { padding: var(--space-1); border-bottom: 1px solid var(--color-border); vertical-align: top; }
-.app-muted { color: var(--color-muted); }
-.app-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
-.app-progress { display: grid; gap: var(--space-1); }
-.app-timeline { display: grid; gap: var(--space-2); }

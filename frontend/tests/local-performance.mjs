@@ -99,7 +99,7 @@ async function api(path, body, headers = {}) {
 
 const routes = [
   ["/web", "Cotiza y agenda", null],
-  ["/whatsapp", "WhatsApp", null],
+  ["/whatsapp", "Chat ficticio", null],
   ["/app", "Folio C-1002", "app"],
   ["/callcenter", "Centro de contacto", "advisor"],
   ["/admin", "C-1001", "admin"],

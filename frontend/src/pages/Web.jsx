@@ -3,6 +3,7 @@ import SimulateNewDevice from "../SimulateNewDevice";
 import ResumeByEmail from "../ResumeByEmail";
 import { formatMexicoDateTime as formatSlot } from "../mexicoTime";
 import useAbortableEffect from "../useAbortableEffect";
+import BrandLogo from "../ui/BrandLogo";
 import { CatalogOptions, PatientFields, StudyOptions } from "../BookingFields";
 
 import {
@@ -46,8 +47,8 @@ function Progress({ current }) {
     <ol className="grid grid-cols-5 gap-2" aria-label="Progreso del trámite">
       {steps.map((step, index) => (
         <li key={step} className="text-center">
-          <div className={`mx-auto mb-2 h-2 rounded-full ${index <= current ? "bg-cyan-600" : "bg-slate-200"}`} />
-          <span className="hidden text-xs text-slate-600 sm:block">{step}</span>
+          <div className={`mx-auto mb-2 h-2 rounded-full ${index <= current ? "bg-primary" : "bg-line"}`} />
+          <span className="hidden text-xs text-muted sm:block">{step}</span>
         </li>
       ))}
     </ol>
@@ -457,43 +458,43 @@ export default function Web() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50">
+    <main className="min-h-screen bg-page">
       <SimulateNewDevice disabled={loading} />
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-5">
+      <header className="border-b-4 border-brand-yellow bg-surface">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-5 py-5">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-widest text-cyan-700">Salud Digna · Demo</p>
-            <h1 className="text-xl font-bold text-slate-900">Cotiza y agenda tu estudio</h1>
+            <BrandLogo />
+            <h1 className="text-xl font-bold text-ink">Cotiza y agenda tu estudio</h1>
           </div>
-          <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-medium text-cyan-800">Datos ficticios</span>
+          <span className="rounded-full bg-brand-yellow px-3 py-1 text-xs font-bold text-ink">Datos ficticios</span>
         </div>
       </header>
 
       <div className="mx-auto max-w-3xl px-5 py-8">
         <Progress current={currentStep} />
 
-        {error && <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">{error}</div>}
-        {loading && <div className="mt-6 rounded-xl bg-cyan-50 p-4 text-sm text-cyan-900" role="status">Procesando…</div>}
+        {error && <div className="mt-6 rounded-xl border border-danger-line bg-danger-soft p-4 text-sm text-danger" role="alert">{error}</div>}
+        {loading && <div className="mt-6 rounded-xl bg-primary-soft p-4 text-sm text-primary-strong" role="status">Procesando…</div>}
 
         {(caseData || hasDraft) && phase !== "cancelled" && (
           <div className="mt-5 flex justify-end">
-            <button className="text-sm font-semibold text-red-700 underline-offset-4 hover:underline disabled:opacity-50" disabled={loading} onClick={cancelCurrent}>{phase === "done" ? "Cancelar cita" : "Cancelar trámite"}</button>
+            <button className="text-sm font-semibold text-danger underline-offset-4 hover:underline disabled:opacity-50" disabled={loading} onClick={cancelCurrent}>{phase === "done" ? "Cancelar cita" : "Cancelar trámite"}</button>
           </div>
         )}
 
-        <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <section className="mt-8 rounded-2xl border border-line bg-surface p-6 shadow-sm sm:p-8">
           {caseData && !caseData.pending && phase !== "cancelled" && (
-            <button type="button" className="mb-4 text-sm font-semibold text-cyan-800 underline" disabled={loading} onClick={bookForSomeoneElse}>
+            <button type="button" className="mb-4 text-sm font-semibold text-primary-strong underline" disabled={loading} onClick={bookForSomeoneElse}>
               Agendar para otra persona
             </button>
           )}
           {phase === "start" && (
             <div className="py-10 text-center">
               <h2 className="text-3xl font-bold">Tu salud, sin empezar de nuevo</h2>
-              <p className="mx-auto mt-3 max-w-xl text-slate-600">Consulta precios ficticios y conserva el avance de tu trámite en esta sesión.</p>
+              <p className="mx-auto mt-3 max-w-xl text-muted">Consulta precios ficticios y conserva el avance de tu trámite en esta sesión.</p>
               <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
                 <button className="button-primary" disabled={loading} onClick={startQuote}>Comenzar cotización</button>
-                <button className="rounded-xl border border-cyan-700 px-6 py-3 font-semibold text-cyan-800 hover:bg-cyan-50 disabled:opacity-50" disabled={loading} onClick={openExistingCase}>Ya tengo un trámite</button>
+                <button className="rounded-xl border border-primary px-6 py-3 font-semibold text-primary-strong hover:bg-primary-soft disabled:opacity-50" disabled={loading} onClick={openExistingCase}>Ya tengo un trámite</button>
               </div>
             </div>
           )}
@@ -515,9 +516,9 @@ export default function Web() {
               <h2 className="section-title">Escribe el código</h2>
               <p className="section-copy">Lo enviamos a {verificationInfo?.masked_email}. El código vence en cinco minutos.</p>
               <label className="field mt-6">Código de 6 dígitos<input required inputMode="numeric" pattern="[0-9]{6}" maxLength="6" value={otpCode} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))} placeholder="123456" /></label>
-              <a className="mt-3 inline-block text-sm font-semibold text-cyan-700 hover:underline" href={`/mailbox?email=${encodeURIComponent(loginEmail)}`}>Abrir buzón simulado</a>
+              <a className="mt-3 inline-block text-sm font-semibold text-primary hover:underline" href={`/mailbox?email=${encodeURIComponent(loginEmail)}`}>Abrir buzón simulado</a>
               <button className="button-primary mt-6 w-full" disabled={loading || otpCode.length !== 6}>Verificar y continuar</button>
-              <button className="mt-3 w-full text-sm font-semibold text-slate-600 hover:underline" type="button" disabled={loading} onClick={() => setPhase("verify_email")}>Solicitar otro código</button>
+              <button className="mt-3 w-full text-sm font-semibold text-muted hover:underline" type="button" disabled={loading} onClick={() => setPhase("verify_email")}>Solicitar otro código</button>
             </form>
           )}
 
@@ -526,7 +527,7 @@ export default function Web() {
               <h2 className="section-title">Elige un estudio</h2>
               <p className="section-copy">Los precios e indicaciones son únicamente para esta demostración.</p>
               {caseData && (
-                <p className="mt-4 rounded-xl bg-cyan-50 p-4 text-sm text-cyan-950">
+                <p className="mt-4 rounded-xl bg-primary-soft p-4 text-sm text-primary-strong">
                   Solicitante: <strong>{caseData.requester.full_name}</strong>. Tus datos ya están precargados.
                 </p>
               )}
@@ -539,9 +540,9 @@ export default function Web() {
             <form onBlur={flushDraft} onSubmit={preregister}>
               <div className="flex items-center justify-between gap-4">
                 <h2 className="section-title">Completa tu preregistro</h2>
-                <span className="text-xs font-medium text-slate-500" aria-live="polite">{draftStatus}</span>
+                <span className="text-xs font-medium text-muted" aria-live="polite">{draftStatus}</span>
               </div>
-              {quote && <div className="mt-4 rounded-xl bg-cyan-50 p-4 text-cyan-950"><strong>{quote.name}</strong> · ${quote.price} MXN</div>}
+              {quote && <div className="mt-4 rounded-xl bg-primary-soft p-4 text-primary-strong"><strong>{quote.name}</strong> · ${quote.price} MXN</div>}
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 <label className="field sm:col-span-2">Nombre completo<input required readOnly={thirdParty} name="fullName" value={form.fullName} onChange={updateForm} /></label>
                 <label className="field">Fecha de nacimiento<input required readOnly={thirdParty} type="date" name="birthDate" value={form.birthDate} onChange={updateForm} /></label>
@@ -571,7 +572,7 @@ export default function Web() {
           {phase === "confirm" && caseData && (
             <div>
               <h2 className="section-title">Confirma los datos de tu cita</h2>
-              <dl className="mt-6 grid gap-4 rounded-xl bg-slate-50 p-5 sm:grid-cols-2">
+              <dl className="mt-6 grid gap-4 rounded-xl bg-page p-5 sm:grid-cols-2">
                 <div><dt className="summary-label">Paciente</dt><dd>{caseData.patient.full_name}</dd></div>
                 <div><dt className="summary-label">Estudio</dt><dd>{studies.find((item) => item.id === caseData.study_id)?.name}</dd></div>
                 <div><dt className="summary-label">Clínica</dt><dd>{clinics.find((item) => item.id === caseData.clinic_id)?.name}</dd></div>
@@ -583,34 +584,34 @@ export default function Web() {
 
           {phase === "done" && caseData && (
             <div className="text-center">
-              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-100 text-2xl text-emerald-700">✓</div>
+              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-success-soft text-2xl text-success">✓</div>
               <h2 className="mt-4 text-2xl font-bold">Cita confirmada</h2>
-              <p className="mt-2 text-slate-600">Tu folio ficticio es <strong>{caseData.id}</strong>.</p>
+              <p className="mt-2 text-muted">Tu folio ficticio es <strong>{caseData.id}</strong>.</p>
               <button className="button-primary mt-6" disabled={loading} onClick={scheduleAnotherStudy}>Agendar otro estudio</button>
-              <details className="mt-8 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-cyan-100 pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-slate-600"><time dateTime={event.timestamp}>{formatSlot(event.timestamp)}</time> · {event.type.replaceAll("_", " ")}</li>)}</ol></details>
+              <details className="mt-8 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-primary-soft pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-muted"><time dateTime={event.timestamp}>{formatSlot(event.timestamp)}</time> · {event.type.replaceAll("_", " ")}</li>)}</ol></details>
             </div>
           )}
 
           {phase === "cancelled" && (
             <div className="py-8 text-center">
-              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-2xl text-slate-600">×</div>
+              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-subtle text-2xl text-muted">×</div>
               <h2 className="mt-4 text-2xl font-bold">{cancelledKind === "case" ? "Trámite cancelado" : "Borrador descartado"}</h2>
-              <p className="mt-2 text-slate-600">{cancelledKind === "case" ? "El trámite se conserva en tu línea de tiempo." : "Los datos incompletos ya no están guardados."}</p>
+              <p className="mt-2 text-muted">{cancelledKind === "case" ? "El trámite se conserva en tu línea de tiempo." : "Los datos incompletos ya no están guardados."}</p>
               {cancelledKind === "case" && timeline.length > 0 && (
-                <details className="mt-6 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-cyan-100 pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-slate-600"><time dateTime={event.timestamp}>{formatSlot(event.timestamp)}</time> · {event.type.replaceAll("_", " ")}</li>)}</ol></details>
+                <details className="mt-6 text-left"><summary className="cursor-pointer font-semibold">Ver línea de tiempo</summary><ol className="mt-4 space-y-2 border-l-2 border-primary-soft pl-4">{timeline.map((event) => <li key={event.event_id} className="text-sm text-muted"><time dateTime={event.timestamp}>{formatSlot(event.timestamp)}</time> · {event.type.replaceAll("_", " ")}</li>)}</ol></details>
               )}
               <button className="button-primary mt-8" disabled={loading} onClick={startNewCase}>Empezar un trámite nuevo</button>
             </div>
           )}
 
           {previousCases.length > 0 && phase !== "start" && (
-            <aside className="mt-8 border-t border-slate-200 pt-6 text-left">
-              <h3 className="font-semibold text-slate-900">Trámites anteriores</h3>
+            <aside className="mt-8 border-t border-line pt-6 text-left">
+              <h3 className="font-semibold text-ink">Trámites anteriores</h3>
               <ul className="mt-3 space-y-2">
                 {previousCases.map((previousCase, index) => (
-                  <li key={`${previousCase.status}-${previousCase.study_id ?? "sin-estudio"}-${index}`} className="flex items-center justify-between gap-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
+                  <li key={`${previousCase.status}-${previousCase.study_id ?? "sin-estudio"}-${index}`} className="flex items-center justify-between gap-4 rounded-lg bg-page px-4 py-3 text-sm">
                     <span>{studies.find((study) => study.id === previousCase.study_id)?.name ?? "Estudio por elegir"}</span>
-                    <span className="font-medium text-slate-600">{previousCase.status.replaceAll("_", " ")}</span>
+                    <span className="font-medium text-muted">{previousCase.status.replaceAll("_", " ")}</span>
                   </li>
                 ))}
               </ul>

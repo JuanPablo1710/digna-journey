@@ -33,9 +33,9 @@ export default function ResumeByEmail({ phone, studies, clinics, onSelected, onC
   }
 
   return (
-    <section className="my-4 rounded-xl border border-slate-200 bg-white p-4">
+    <section className="my-4 rounded-xl border border-line bg-surface p-4">
       <h2 className="font-semibold">Retomar con mi correo</h2>
-      {error && <p role="alert" className="my-2 text-red-700">{error}</p>}
+      {error && <p role="alert" className="my-2 text-danger">{error}</p>}
       {items ? (
         <ul className="my-3 space-y-2">
           {items.length === 0 && <li>No hay trámites ni borradores disponibles.</li>}
@@ -64,7 +64,7 @@ export default function ResumeByEmail({ phone, studies, clinics, onSelected, onC
             <label className="field">Código de seis dígitos
               <input required type="password" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} />
             </label>
-            <a className="block text-cyan-800 underline" target="_blank" rel="noreferrer" href={`/mailbox?email=${encodeURIComponent(email)}`}>Abrir buzón simulado</a>
+            <a className="block text-primary-strong underline" target="_blank" rel="noreferrer" href={`/mailbox?email=${encodeURIComponent(email)}`}>Abrir buzón simulado</a>
           </> : (
             <label className="field">Correo electrónico
               <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} />

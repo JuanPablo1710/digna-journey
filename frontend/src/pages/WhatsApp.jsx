@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import SimulateNewDevice from "../SimulateNewDevice";
+import BrandLogo from "../ui/BrandLogo";
 
 import { resetWhatsAppConversation, sendWhatsAppInteraction } from "../api";
 
@@ -84,12 +85,12 @@ export default function WhatsApp() {
   }
 
   return (
-    <main className="min-h-screen bg-emerald-50/60 px-4 py-6 sm:py-10">
+    <main className="min-h-screen bg-page px-4 py-6 sm:py-10">
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_390px] lg:items-start">
-        <section className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm sm:p-7">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Simulador de canal</p>
-          <h1 className="mt-2 text-3xl font-bold text-slate-900">WhatsApp ficticio</h1>
-          <p className="mt-3 text-slate-600">Elige un número de demostración o escribe otro. No se envían mensajes reales.</p>
+        <section className="rounded-2xl border border-success-soft bg-surface p-5 shadow-sm sm:p-7">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-success">Simulador de canal</p>
+          <h1 className="mt-2 text-3xl font-bold text-ink">Chat ficticio</h1>
+          <p className="mt-3 text-muted">Elige un número de demostración o escribe otro. No se envían mensajes reales.</p>
 
           <label className="field mt-6">
             Número simulado
@@ -106,52 +107,52 @@ export default function WhatsApp() {
           )}
 
           <div className="mt-5 flex flex-wrap gap-3">
-            <button className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50" disabled={loading || !phone} onClick={resetConversation}>Reiniciar conversación</button>
+            <button className="rounded-xl border border-brand-gray px-4 py-3 text-sm font-semibold text-muted hover:bg-page disabled:opacity-50" disabled={loading || !phone} onClick={resetConversation}>Reiniciar conversación</button>
           </div>
-          <a className="mt-5 inline-block text-sm font-semibold text-emerald-700 hover:underline" href="/mailbox">Abrir buzón simulado →</a>
-          <p className="mt-3 text-xs text-slate-500">Para Ana creada desde `/web`, selecciona “Otro número” y usa el teléfono de su preregistro.</p>
+          <a className="mt-5 inline-block text-sm font-semibold text-success hover:underline" href="/mailbox">Abrir buzón simulado →</a>
+          <p className="mt-3 text-xs text-muted">Para Ana creada desde `/web`, selecciona “Otro número” y usa el teléfono de su preregistro.</p>
         </section>
 
-        <section className="mx-auto flex h-[720px] w-full max-w-[390px] flex-col overflow-hidden rounded-[2rem] border-[8px] border-slate-900 bg-[#efeae2] shadow-2xl" aria-label="Conversación simulada de WhatsApp">
-          <header className="flex items-center gap-3 bg-emerald-800 px-4 py-3 text-white">
-            <div className="grid h-10 w-10 place-items-center rounded-full bg-white/20 font-bold">SD</div>
+        <section className="mx-auto flex h-[720px] w-full max-w-[390px] flex-col overflow-hidden rounded-[2rem] border-[8px] border-ink bg-subtle shadow-2xl" aria-label="Conversación simulada">
+          <header className="on-green flex items-center gap-3 border-b-4 border-brand-yellow bg-primary-strong px-4 py-3">
+            <BrandLogo compact />
             <div className="min-w-0 flex-1">
-              <h2 className="font-semibold">Salud Digna · Demo</h2>
-              <p className="truncate text-xs text-emerald-100">{phone || "Elige un número"}</p>
+              <h2 className="text-xl font-bold text-on-primary">Digna Journey · Demo</h2>
+              <p className="w-fit max-w-full truncate rounded bg-warning-soft px-2 py-0.5 text-xs font-semibold text-ink">{phone || "Elige un número"}</p>
             </div>
           </header>
 
           <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
             {messages.length === 0 && (
-              <div className="rounded-xl bg-white p-3 text-sm">
+              <div className="rounded-xl bg-surface p-3 text-sm">
                 <p>Escribe «hola» para iniciar o retoma un trámite.</p>
               </div>
             )}
             {messages.map((message, index) => (
               <div key={`${message.side}-${index}`} className={`flex ${message.side === "sent" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.side === "sent" ? "rounded-br-sm bg-[#d9fdd3]" : "rounded-bl-sm bg-white"}`}>
+                <div className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.side === "sent" ? "rounded-br-sm bg-success-soft" : "rounded-bl-sm bg-surface"}`}>
                   <p className="whitespace-pre-wrap">{message.text}</p>
                   {message.quick_replies?.length > 0 && (
-                    <div className="mt-3 grid gap-2 border-t border-slate-100 pt-2">
+                    <div className="mt-3 grid gap-2 border-t border-subtle pt-2">
                       {message.quick_replies.map((reply, replyIndex) => (
-                        <button key={`${reply.action}-${replyIndex}`} className="rounded-lg px-2 py-1.5 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50" disabled={loading} onClick={() => chooseReply(reply)}>{reply.label}</button>
+                        <button key={`${reply.action}-${replyIndex}`} className="rounded-lg px-2 py-1.5 text-left text-sm font-semibold text-success hover:bg-success-soft disabled:opacity-50" disabled={loading} onClick={() => chooseReply(reply)}>{reply.label}</button>
                       ))}
                     </div>
                   )}
                 </div>
               </div>
             ))}
-            {loading && <div className="w-fit rounded-2xl rounded-bl-sm bg-white px-3 py-2 text-sm text-slate-500 shadow-sm">Escribiendo…</div>}
-            {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</div>}
+            {loading && <div className="w-fit rounded-2xl rounded-bl-sm bg-surface px-3 py-2 text-sm text-muted shadow-sm">Escribiendo…</div>}
+            {error && <div className="rounded-xl border border-danger-line bg-danger-soft p-3 text-sm text-danger" role="alert">{error}</div>}
           </div>
 
-          <button type="button" className="self-start px-4 py-2 text-sm font-semibold text-emerald-800" disabled={loading || !phone}
+          <button type="button" className="self-start px-4 py-2 text-sm font-semibold text-primary-strong" disabled={loading || !phone}
             onClick={() => chooseReply({ label: "Retomar un trámite", action: "resume_menu", payload: {} })}>
             Retomar un trámite
           </button>
-          <form className="flex gap-2 bg-slate-100 p-3" onSubmit={sendText}>
-            <input className="min-w-0 flex-1 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-emerald-600" type={resumeInput === "code" ? "password" : "text"} inputMode={resumeInput === "code" ? "numeric" : undefined} value={input} onChange={(event) => setInput(event.target.value)} disabled={loading || !phone} aria-label="Mensaje" placeholder="Escribe un mensaje" />
-            <button className="grid h-10 w-10 place-items-center rounded-full bg-emerald-700 text-white disabled:opacity-50" disabled={loading || !input.trim() || !phone} aria-label="Enviar">↑</button>
+          <form className="flex gap-2 bg-subtle p-3" onSubmit={sendText}>
+            <input className="min-w-0 flex-1 rounded-full border border-brand-gray bg-surface px-4 py-2 text-sm outline-none focus:border-primary" type={resumeInput === "code" ? "password" : "text"} inputMode={resumeInput === "code" ? "numeric" : undefined} value={input} onChange={(event) => setInput(event.target.value)} disabled={loading || !phone} aria-label="Mensaje" placeholder="Escribe un mensaje" />
+            <button className="grid h-10 w-10 place-items-center rounded-full bg-success text-on-primary disabled:opacity-50" disabled={loading || !input.trim() || !phone} aria-label="Enviar">↑</button>
           </form>
           <SimulateNewDevice disabled={loading} />
         </section>

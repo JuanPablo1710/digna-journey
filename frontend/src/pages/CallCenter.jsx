@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import useAbortableEffect from "../useAbortableEffect";
+import BrandLogo from "../ui/BrandLogo";
 import { Navigate, useNavigate } from "react-router-dom";
 import { formatMexicoDateTime, formatMexicoTime } from "../mexicoTime";
 import {
@@ -25,7 +26,7 @@ function maskedLookup(field, value) {
 function Step({ number, title, active, disabled = false, children }) {
   return (
     <section aria-labelledby={`cc-step-${number}`} aria-current={active ? "step" : undefined}
-      className={`rounded-xl border bg-white p-5 ${disabled ? "opacity-60" : ""} ${active ? "border-cyan-700 ring-1 ring-cyan-700" : "border-slate-200"}`}>
+      className={`rounded-xl border bg-surface p-5 ${disabled ? "opacity-60" : ""} ${active ? "border-primary ring-1 ring-primary" : "border-line"}`}>
       <h2 id={`cc-step-${number}`} className="text-lg font-semibold">{number}. {title}</h2>
       {children}
     </section>
@@ -276,12 +277,15 @@ export default function CallCenter() {
 
   return (
     <main className="mx-auto max-w-4xl space-y-5 p-5">
-      <p className="sticky top-0 z-10 rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-950">
+      <p className="sticky top-0 z-10 rounded-lg border border-info-line bg-info-soft p-3 text-sm text-info">
         Estás en la vista del asesor. En la llamada real, el paciente habla por teléfono; aquí simulamos la llamada con el botón de llamada entrante.
       </p>
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Centro de contacto</h1>
-        {verified && <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold" role="status">
+      <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-b-4 border-brand-yellow bg-surface p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <BrandLogo />
+          <h1 className="text-2xl font-bold">Centro de contacto</h1>
+        </div>
+        {verified && <span className="rounded bg-subtle px-3 py-2 text-sm font-semibold" role="status">
           {connection === "connected" ? "Conectado" : connection === "disconnected" ? "Sin conexión" : "Reconectando..."}
         </span>}
         <button type="button" disabled={loading} onClick={() => run(async () => {
@@ -289,13 +293,13 @@ export default function CallCenter() {
           logout();
         })} className="text-sm underline">Cerrar sesión</button>
       </header>
-      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
+      {error && <p role="alert" className="rounded-lg bg-danger-soft p-3 text-danger">{error}</p>}
       {loading && <p role="status">Procesando…</p>}
       {verified && !context && !error && <p role="status">Cargando contexto…</p>}
       <Step number={1} title="Llamada" active={stage === 1}>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
           <p>Estado: <strong>{call ? "En llamada" : endedCall ? "Terminada" : "Sin llamada"}</strong></p>
-          <p>Cronómetro: <time className="font-mono tabular-nums">{duration(elapsed)}</time></p>
+          <p>Cronómetro: <time className="font-sans tabular-nums">{duration(elapsed)}</time></p>
           {displayedCall && <p>{displayedCall.incomingNumber ? `Número entrante: ${displayedCall.incomingNumber}`
             : displayedCall.incomingNumber === "" ? "Número oculto" : "Número no disponible"}</p>}
         </div>
@@ -328,9 +332,9 @@ export default function CallCenter() {
         </form>
         {matches?.length === 0 && <p>No hay coincidencias.</p>}
         {matches?.length > 0 && <ul className="space-y-2">{matches.map((person) => (
-          <li key={person.person_id} className="space-y-2 rounded-lg border border-slate-200 p-4">
+          <li key={person.person_id} className="space-y-2 rounded-lg border border-line p-4">
             <p className="font-semibold">{person.masked_name}</p>
-            <p className="text-sm text-slate-700">Reconocida · sin verificar</p>
+            <p className="text-sm text-muted">Reconocida · sin verificar</p>
             <p className="text-sm">Correo: {searchOrigin?.field === "email" ? maskedLookup("email", searchOrigin.value) : "No disponible antes de verificar"}</p>
             <p className="text-sm">Teléfono: {searchOrigin?.field === "phone" ? maskedLookup("phone", searchOrigin.value) : "No disponible antes de verificar"}</p>
             <button className="option-button" type="button" disabled={loading} onClick={() => {
@@ -342,7 +346,7 @@ export default function CallCenter() {
       </Step>
       <Step number={3} title="Verificar identidad" active={stage === 3} disabled={!selection}>
         {!selection && <p className="mt-2 text-sm">Selecciona una persona para continuar.</p>}
-        {verified && validUntil && <p className="mt-2 font-semibold text-emerald-700">
+        {verified && validUntil && <p className="mt-2 font-semibold text-success">
           Verificada · vigente hasta {formatMexicoTime(validUntil)}{call ? " o fin de llamada" : ""}
         </p>}
         {selection && !verified && <>
@@ -350,7 +354,7 @@ export default function CallCenter() {
           <p className="my-2 text-sm">{attempts == null
             ? "La verificación permite hasta tres intentos."
             : `Intentos restantes: ${blockedUntil && !blockedSeconds ? 3 : attempts}.`}</p>
-          {blockedSeconds > 0 && <p className="my-2 text-sm font-semibold text-red-800" role="status">Verificación bloqueada · Tiempo restante: {duration(blockedSeconds)}.</p>}
+          {blockedSeconds > 0 && <p className="my-2 text-sm font-semibold text-danger" role="status">Verificación bloqueada · Tiempo restante: {duration(blockedSeconds)}.</p>}
           <form onSubmit={verify} className="flex flex-wrap items-end gap-3">
             <label className="field">Fecha de nacimiento de {selection.masked_name}
               <input required type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} disabled={blockedSeconds > 0} />
@@ -366,12 +370,12 @@ export default function CallCenter() {
           {context.cases.length === 0 && <p>El solicitante no tiene trámites.</p>}
           {context.cases.map((item) => <AgentCase key={item.id} item={item} catalog={catalog}
             loading={loading} onConfirm={() => changeCase(item, { confirmed: true })} onNote={saveNote} />)}
-          <section className="rounded-xl bg-white p-5 shadow-sm">
+          <section className="rounded-xl bg-surface p-5 shadow-sm">
             <h2 className="font-semibold">Línea de tiempo</h2>
             <ol className="mt-3 space-y-2">
               {context.timeline.map((event) => <li key={event.event_id} className="text-sm">
                 <time dateTime={event.timestamp}>{formatMexicoDateTime(event.timestamp)}</time>
-                {" · "}<span className="rounded bg-slate-100 px-2 py-1 font-medium">{channels[event.channel] ?? event.channel}</span>{" · "}{event.type.replaceAll("_", " ")}
+                {" · "}<span className="rounded bg-subtle px-2 py-1 font-medium">{channels[event.channel] ?? event.channel}</span>{" · "}{event.type.replaceAll("_", " ")}
               </li>)}
             </ol>
           </section>
@@ -386,7 +390,7 @@ function AgentCase({ item, catalog, loading, onConfirm, onNote }) {
   const [note, setNote] = useState("");
   const steps = { study: "Estudio", patient_data: "Datos del paciente", clinic: "Clínica", slot: "Horario", confirmed: "Confirmación" };
   return (
-    <section className="space-y-3 rounded-xl bg-white p-5 shadow-sm">
+    <section className="space-y-3 rounded-xl bg-surface p-5 shadow-sm">
       <h3 className="font-semibold">Solicitante: {item.requester.full_name} · Paciente: {item.patient.full_name}</h3>
       {item.relationship !== "self" && <p>Parentesco: {relationships[item.relationship] ?? item.relationship}</p>}
       <p>Trámite {item.id} · {item.status.replaceAll("_", " ")}</p>

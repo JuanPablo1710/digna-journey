@@ -1,5 +1,3 @@
-import "./theme.css";
-
 const statuses = {
   cotizando: "Cotizando", datos_completos: "Datos completos", clinica_elegida: "Clínica elegida",
   horario_propuesto: "Horario propuesto", cita_confirmada: "Cita confirmada", cancelado: "Cancelado",

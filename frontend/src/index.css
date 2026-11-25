@@ -3,53 +3,125 @@
 @tailwind utilities;
 
 body {
-  @apply m-0 bg-slate-50 text-slate-900;
+  @apply m-0 bg-page font-sans text-ink;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.on-green :focus-visible {
+  outline-color: var(--brand-yellow);
+}
+
+.brand-logo {
+  position: relative;
+  display: block;
+  width: clamp(7rem, 25vw, 9rem);
+  aspect-ratio: 2.6;
+  flex: none;
+  overflow: hidden;
+  border-radius: .45rem;
+  background: var(--color-surface);
+}
+
+.brand-logo img {
+  position: absolute;
+  top: 50%;
+  width: 100%;
+  transform: translateY(-50%);
+}
+
+.brand-logo-compact {
+  width: 5rem;
 }
 
 @layer components {
   .button-primary {
-    @apply rounded-xl bg-cyan-700 px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-cyan-800 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-xl bg-primary px-6 py-3 font-semibold text-on-primary shadow-sm transition hover:bg-primary-strong focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .section-title {
-    @apply text-2xl font-bold text-slate-900;
+    @apply text-2xl font-bold text-ink;
   }
 
   .section-copy {
-    @apply mt-2 text-slate-600;
+    @apply mt-2 text-muted;
   }
 
   .option-card {
-    @apply flex cursor-pointer items-center gap-4 rounded-xl border border-slate-200 p-4 transition hover:border-cyan-400 hover:bg-cyan-50/40;
+    @apply flex cursor-pointer items-center gap-4 rounded-xl border border-line p-4 transition hover:border-brand-green hover:bg-primary-soft;
   }
 
   .option-card-selected {
-    @apply border-cyan-600 bg-cyan-50;
+    @apply border-primary bg-primary-soft;
   }
 
   .option-button {
-    @apply rounded-xl border border-slate-200 p-4 text-left font-semibold transition hover:border-cyan-500 hover:bg-cyan-50 disabled:opacity-50;
+    @apply rounded-xl border border-line p-4 text-left font-semibold transition hover:border-primary hover:bg-primary-soft disabled:opacity-50;
   }
 
   .field {
-    @apply grid gap-2 text-sm font-semibold text-slate-700;
+    @apply grid gap-2 text-sm font-semibold text-muted;
   }
 
   .field input,
   .field select {
-    @apply rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal text-slate-900 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100;
+    @apply rounded-xl border border-brand-gray bg-surface px-4 py-3 font-normal text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft;
   }
 
   .summary-label {
-    @apply mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500;
+    @apply mb-1 text-xs font-semibold uppercase tracking-wide text-muted;
   }
 }
 
 @keyframes admin-event-arrival {
-  from { background-color: #cffafe; }
+  from { background-color: var(--color-warning-soft); }
   to { background-color: transparent; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .admin-event-arrival { animation: admin-event-arrival 0.8s ease-out; }
 }
+
+.app-theme {
+  min-height: 100vh;
+  padding: var(--space-4) var(--space-3);
+  background: var(--color-page);
+  color: var(--color-ink);
+  line-height: 1.45;
+}
+
+.app-phone { max-width: 29rem; margin: 0 auto; overflow: hidden; border: 3px solid var(--color-ink); border-radius: var(--radius-phone); background: var(--color-page); box-shadow: var(--shadow); }
+.app-phone header { border-bottom: 4px solid var(--brand-yellow); padding: var(--space-4); background: var(--color-primary-strong); color: var(--color-on-primary); }
+.app-phone h1 { margin: 0 0 var(--space-2); font-size: 1.55rem; font-weight: 750; }
+.app-phone h2 { margin: 0 0 var(--space-2); font-size: 1.2rem; font-weight: 700; }
+.app-body, .app-stack { display: grid; gap: var(--space-3); }
+.app-body { padding: var(--space-3); }
+.app-card { border: 1px solid var(--color-line); border-radius: var(--radius); background: var(--color-surface); padding: var(--space-3); }
+.app-button { padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius); background: var(--color-primary); color: var(--color-on-primary); font-weight: 700; text-align: center; cursor: pointer; }
+.app-button:hover { background: var(--color-primary-strong); }
+.app-button-secondary { border-color: currentColor; background: var(--color-surface); color: var(--color-primary-strong); }
+.app-button-secondary:hover { background: var(--color-primary-soft); }
+.app-button:disabled { opacity: .55; cursor: not-allowed; }
+.app-theme :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.app-theme header :focus-visible { outline-color: var(--color-on-primary); }
+.app-theme label { display: grid; gap: var(--space-1); font-weight: 650; }
+.app-theme :is(input:not([type="radio"]), select) { width: 100%; padding: var(--space-2); border: 1px solid var(--color-line); border-radius: var(--radius); background: var(--color-surface); color: var(--color-ink); }
+.app-theme :is(.option-card, .booking-radio) { display: flex; align-items: center; }
+.app-theme .option-button { text-align: left; }
+.app-theme a { color: var(--color-primary-strong); text-decoration: underline; }
+.app-badge { display: inline-flex; align-items: center; gap: var(--space-1); border-radius: var(--radius); background: var(--color-primary-soft); padding: var(--space-1) var(--space-2); font-size: .875rem; font-weight: 650; }
+.app-badge[data-tone="positive"], .app-badge[data-tone="whatsapp"] { background: var(--color-success-soft); color: var(--color-success); }
+.app-badge[data-tone="web"] { background: var(--color-info-soft); color: var(--color-info); }
+.app-badge[data-tone="callcenter"] { background: var(--color-warning-soft); color: var(--color-warning); }
+.app-badge[data-tone="negative"] { color: var(--color-danger); background: var(--color-danger-soft); }
+.app-bubble { border-radius: var(--radius) var(--radius) var(--radius) .2rem; background: var(--color-primary-soft); padding: var(--space-2) var(--space-3); }
+.app-error { color: var(--color-danger); background: var(--color-danger-soft); }
+.app-table { width: 100%; border-collapse: collapse; text-align: left; }
+.app-table :is(th, td) { padding: var(--space-1); border-bottom: 1px solid var(--color-line); vertical-align: top; }
+.app-muted { color: var(--color-muted); }
+.app-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.app-progress { display: grid; gap: var(--space-1); }
+.app-timeline { display: grid; gap: var(--space-2); }

@@ -2,7 +2,10 @@ import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
+import "@fontsource/questrial/latin-400.css";
+import "./ui/theme.css";
 import "./index.css";
+import PageTitle from "./ui/PageTitle";
 
 const Admin = lazy(() => import("./pages/Admin"));
 const AppPage = lazy(() => import("./pages/App"));
@@ -15,6 +18,7 @@ const WhatsApp = lazy(() => import("./pages/WhatsApp"));
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
+      <PageTitle />
       <Suspense fallback={<p className="p-5" role="status">Cargando…</p>}>
         <Routes>
           <Route path="/web" element={<Web />} />

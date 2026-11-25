@@ -6,17 +6,18 @@ import {
 } from "../api";
 import { formatMexicoDateTime } from "../mexicoTime";
 import useAbortableEffect from "../useAbortableEffect";
+import BrandLogo from "../ui/BrandLogo";
 
 const states = {
   cotizando: "Cotizando", datos_completos: "Datos completos", clinica_elegida: "Clínica elegida",
   horario_propuesto: "Horario propuesto", cita_confirmada: "Cita confirmada", cancelado: "Cancelado",
 };
 const channels = {
-  web: ["Web", "bg-blue-100 text-blue-950"],
-  whatsapp: ["WhatsApp", "bg-emerald-100 text-emerald-950"],
-  callcenter: ["Call Center", "bg-violet-100 text-violet-950"],
-  app: ["App", "bg-orange-100 text-orange-950"],
-  admin: ["Admin", "bg-slate-200 text-slate-950"],
+  web: ["Web", "bg-info-soft text-info"],
+  whatsapp: ["WhatsApp", "bg-success-soft text-success"],
+  callcenter: ["Call Center", "bg-warning-soft text-warning"],
+  app: ["App", "bg-primary-soft text-primary-strong"],
+  admin: ["Admin", "bg-line text-ink"],
 };
 const auditTypes = {
   contexto_consultado: "Contexto consultado", acceso_denegado: "Acceso denegado",
@@ -30,7 +31,7 @@ const caseUpdates = new Set([
 ]);
 
 function Channel({ value }) {
-  const [label, color] = channels[value] ?? ["Sin canal", "bg-gray-100 text-gray-700"];
+  const [label, color] = channels[value] ?? ["Sin canal", "bg-subtle text-muted"];
   return <span className={`whitespace-nowrap rounded-md px-2 py-1 text-sm font-semibold ${color}`}>{label}</span>;
 }
 
@@ -40,15 +41,15 @@ function MaskedContact({ person }) {
 }
 
 function EventList({ events, live = false }) {
-  if (!events.length) return <p className="mt-4 text-slate-600">Todavía no hay eventos.</p>;
-  return <ol className="mt-4 divide-y divide-slate-200">{events.map((item) => (
+  if (!events.length) return <p className="mt-4 text-muted">Todavía no hay eventos.</p>;
+  return <ol className="mt-4 divide-y divide-line">{events.map((item) => (
     <li key={item.cursor} className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded px-3 py-3 ${live && item.live ? "admin-event-arrival" : ""}`}>
       <span className="font-medium">{item.summary}</span>
       <Channel value={item.channel} />
       {item.case_id && <span>{item.case_id}</span>}
-      {item.actor && <span className="text-sm text-slate-700">{item.actor.role ?? "Actor sin registrar"}{item.actor.id && ` · ${item.actor.id}`}</span>}
-      {item.person && <span className="text-sm text-slate-700">{item.person.name} · {item.person.phone} · {item.person.email}</span>}
-      <time dateTime={item.timestamp} className="text-sm text-slate-600 sm:ml-auto">{formatMexicoDateTime(item.timestamp)}</time>
+      {item.actor && <span className="text-sm text-muted">{item.actor.role ?? "Actor sin registrar"}{item.actor.id && ` · ${item.actor.id}`}</span>}
+      {item.person && <span className="text-sm text-muted">{item.person.name} · {item.person.phone} · {item.person.email}</span>}
+      <time dateTime={item.timestamp} className="text-sm text-muted sm:ml-auto">{formatMexicoDateTime(item.timestamp)}</time>
     </li>
   ))}</ol>;
 }
@@ -186,44 +187,47 @@ export default function Admin() {
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-5 py-8 text-base lg:text-lg">
-      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-slate-900 p-5 text-white sm:p-7">
-        <h1 className="text-3xl font-bold">Tablero de administración</h1>
+      <header className="on-green flex flex-wrap items-center justify-between gap-4 rounded-2xl border-b-4 border-brand-yellow bg-primary p-5 sm:p-7">
+        <div className="flex flex-wrap items-center gap-3">
+          <BrandLogo />
+          <h1 className="text-3xl font-bold text-on-primary">Tablero de administración</h1>
+        </div>
         <div className="flex flex-wrap items-center gap-4">
-          <span role="status" className="rounded bg-slate-700 px-3 py-2 text-base font-semibold">
+          <span role="status" className="rounded bg-brand-yellow px-3 py-2 text-base font-bold text-ink">
             {connection === "connected" ? "Conectado" : connection === "disconnected" ? "Sin conexión" : "Reconectando..."}
           </span>
-          <button className="underline" type="button" onClick={logout}>Cerrar sesión</button>
+          <button className="rounded-lg border border-surface bg-primary-strong px-3 py-2 font-bold text-on-primary" type="button" onClick={logout}>Cerrar sesión</button>
         </div>
       </header>
-      {error && <p role="alert" className="rounded-lg bg-red-50 p-4 text-red-800">{error}</p>}
-      {feedback && <p role="status" className="rounded-lg bg-emerald-50 p-4 text-emerald-900">{feedback}</p>}
+      {error && <p role="alert" className="rounded-lg bg-danger-soft p-4 text-danger">{error}</p>}
+      {feedback && <p role="status" className="rounded-lg bg-success-soft p-4 text-success">{feedback}</p>}
       {!dashboard && !error && <p role="status">Cargando tablero…</p>}
       {demo && <section aria-label="Operaciones de demo" className="flex flex-wrap gap-3">
-        <button className="option-button bg-white" disabled={busy} onClick={() => run(async () => {
+        <button className="option-button bg-surface" disabled={busy} onClick={() => run(async () => {
           await seedAdminDemo();
           setRevision((value) => value + 1);
           setAuditRevision((value) => value + 1);
         }, "Datos de demo comprobados.")}>Cargar datos faltantes</button>
-        <button className="option-button bg-white text-red-800" disabled={busy} onClick={reset}>Reiniciar demo</button>
+        <button className="option-button bg-surface text-danger" disabled={busy} onClick={reset}>Reiniciar demo</button>
       </section>}
       <section aria-label="Indicadores" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {kpis.map(([label, value]) => <article key={label} className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="font-semibold text-slate-700">{label}</p>
+        {kpis.map(([label, value]) => <article key={label} className="rounded-xl border border-line bg-surface p-4">
+          <p className="font-semibold text-muted">{label}</p>
           <p className="mt-2 text-3xl font-bold tabular-nums">{value ?? "—"}</p>
         </article>)}
       </section>
-      {dashboard && <section className="rounded-xl border border-slate-200 bg-white p-5">
+      {dashboard && <section className="rounded-xl border border-line bg-surface p-5">
         <h2 className="text-xl font-bold">Embudo de trámites</h2>
         <ol className="mt-4 space-y-3">
           {dashboard.funnel.map((step) => <li key={step.status} className="grid grid-cols-[minmax(8rem,13rem)_1fr_2rem] items-center gap-3">
             <span>{states[step.status]}</span>
-            <div className="h-4 rounded-full bg-slate-100" aria-hidden="true"><div className="h-4 rounded-full bg-cyan-700" style={{ width: `${100 * step.count / funnelMax}%` }} /></div>
+            <div className="h-4 rounded-full bg-subtle" aria-hidden="true"><div className="h-4 rounded-full bg-primary" style={{ width: `${100 * step.count / funnelMax}%` }} /></div>
             <strong className="text-right tabular-nums">{step.count}</strong>
           </li>)}
         </ol>
-        <p className="mt-3 text-sm text-slate-700">Cancelados: {dashboard.totals_by_status.cancelado}. El embudo cuenta el estado actual de cada trámite.</p>
+        <p className="mt-3 text-sm text-muted">Cancelados: {dashboard.totals_by_status.cancelado}. El embudo cuenta el estado actual de cada trámite.</p>
       </section>}
-      <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <section className="rounded-xl border border-line bg-surface p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-xl font-bold">Trámites</h2>
           <div className="flex flex-wrap gap-3">
@@ -239,25 +243,25 @@ export default function Admin() {
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[620px] text-left">
-            <thead className="bg-slate-100"><tr>
+            <thead className="bg-subtle"><tr>
               {["Folio", "Solicitante", "Paciente", "Estado", "Recorrido"].map((title) => <th scope="col" className="p-3" key={title}>{title}</th>)}
             </tr></thead>
-            <tbody className="divide-y divide-slate-200">{cases.map((item) => <tr key={item.id}>
+            <tbody className="divide-y divide-line">{cases.map((item) => <tr key={item.id}>
               <th scope="row" className="p-3 align-top">{item.id}</th>
               <td className="p-3 align-top text-sm"><MaskedContact person={item.requester} /></td>
               <td className="p-3 align-top text-sm"><MaskedContact person={item.patient} /></td>
-              <td className="p-3 align-top">{states[item.status] ?? item.status}{item.abandoned && <span className="block text-amber-900">Abandonado</span>}</td>
+              <td className="p-3 align-top">{states[item.status] ?? item.status}{item.abandoned && <span className="block text-warning">Abandonado</span>}</td>
               <td className="p-3 align-top"><ol className="flex flex-wrap items-center gap-2">{item.channels.map((channel, index) => <li key={`${channel}-${index}`} className="flex items-center gap-2">{index > 0 && <span aria-hidden="true">→</span>}<Channel value={channel} /></li>)}</ol></td>
             </tr>)}</tbody>
           </table>
         </div>
-        {dashboard && cases.length === 0 && <p className="mt-4 text-slate-600">No hay trámites para estos filtros.</p>}
+        {dashboard && cases.length === 0 && <p className="mt-4 text-muted">No hay trámites para estos filtros.</p>}
       </section>
-      <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <section className="rounded-xl border border-line bg-surface p-5">
         <h2 className="text-xl font-bold">Eventos en vivo</h2>
         <EventList events={feed} live />
       </section>
-      <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <section className="rounded-xl border border-line bg-surface p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-xl font-bold">Bitácora de auditoría</h2>
           <label className="field">Tipo de evento

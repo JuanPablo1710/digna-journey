@@ -6,6 +6,7 @@ import {
 import { CatalogOptions, PatientFields, StudyOptions } from "../BookingFields";
 import { formatMexicoDateTime } from "../mexicoTime";
 import useAbortableEffect from "../useAbortableEffect";
+import BrandLogo from "../ui/BrandLogo";
 import { Button, Card, ChannelTag, ChatBubble, StatusTag, Table } from "../ui/components";
 
 const steps = {
@@ -137,7 +138,8 @@ export default function App() {
     <main className="app-theme">
       <div className="app-phone">
         <header>
-          <h1>{session ? "Mis trámites" : "Salud Digna · App"}</h1>
+          <BrandLogo />
+          <h1>{session ? "Mis trámites" : "Digna Journey · App"}</h1>
           {session && <Button secondary disabled={busy} onClick={() => endSession()}>Cerrar sesión</Button>}
         </header>
         <div className="app-body">
