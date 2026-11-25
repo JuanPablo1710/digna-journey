@@ -35,7 +35,7 @@
 | asesor | asesor | Asesor#2026 |
 | admin | admin | Admin#2026 |
 
-Catálogo de demo con 45 horarios del 2026-11-25 al 2026-11-27, de 09:00 a 13:00 hora de Ciudad de México por clínica.
+Catálogo de demo con 45 horarios del 2026-11-26 al 2026-11-28, de 09:00 a 13:00 hora de Ciudad de México por clínica.
 
 ## Historial de ejemplo
 
